@@ -7,35 +7,38 @@ This script is the preliminary io script for coxphmm.py
 import numpy as np
 import argparse
 import pandas as pd
-import os
+from tempfile import mkdtemp
+import os.path as path
 
 
 # TODO: handle missing data, assumes data preprocessed
-
+# currently has a  check if grm and events don't match but not fully vetted
 # This class handles all input/output functions
 class IO():
 
 	def __init__(self):
+		self.temp = mkdtemp()
 		self.N = 0
 		self.M = 0
 		self.grm = []
 		self.events = None
 		self.fixed = None
 		self.output = ''
-		#self.method = ''
-		#self.solver = 'exact'
 		self.setup()
-		self.times = self.events[['start', 'stop']].to_numpy()
-		self.events = self.events.event.to_numpy()
-		#TODO: allow more than one GRM for analyses
-		# already allow it as input, but only have one
-		self.grm = self.grm[0]
+		self.times = np.memmap(path.join(self.temp, 'times.dat'), dtype='float64', mode='w+', shape=(self.N,2))
+		self.times[:] = self.events[['start', 'stop']].to_numpy()
+		events = self.events.event.to_numpy()
+		self.events = np.memmap(path.join(self.temp, 'events.dat'), dtype='float64', mode='w+', shape=(self.N))
+		self.events[:] = events
+		del events #not necessary but want to clean as I go
+
+	def __del__(self):
+		self.temp.cleanup()
 
 	# this function calls the parser and processes the input
 	def setup(self):
 		args = self.def_parser()
 		self.output = args.output
-		#self.method = args.method
 		self.process_events(args.sample_id, args.events)
 		if args.random is not None:
 			for i in args.random:
@@ -43,25 +46,39 @@ class IO():
 				first = False
 
 		elif args.grm is not None:
-			for i in range(0, len(args.grm)):
-				grm = np.loadtxt(args.grm[i])
-				#pd.read_csv(args.grm[i], sep = '\t', header = None)
-				if grm.shape[0] != grm.shape[1]:
-					raise ValueError("GRM: " + args.grm[i] + " is not a square matrix")
+			if len(args.grm) > 1:
+				print("Warning, currenlty only reading in first GRM")
+			
+			#TODO: allow more than one GRM for analyses
+			# already allow it as input, but only have one
+			# process grm names first so we can get intersection across GRM or warn user we don't
+			#for i in range(0, len(args.grm)):
+			grm = np.memmap(args.grm[0], dtype='float64', mode='r', shape=(self.N,self.N))
+			self.grm = np.memmap(path.join(self.temp, 'grm.dat'), dtype='float64', mode='w+', shape=(self.N,self.N))
+			# Eigen decompositon & set 0 eigenvalues to 1e-6
+			Lambda, U = np.linalg.eigh(grm)#, driver = 'evd')
+			Lambda[Lambda < 1e-10] = 1e-6
+			# grm is now inverted
+			self.grm[:] = np.matmul(np.matmul(U, np.diag(1/Lambda)), np.transpose(U))
+			del Lambda, U, grm
 
-				grm_names = pd.read_csv(args.grm_names[i], sep = '\t', header = 0)
-				if grm.shape[0] != grm_names.shape[0]:
-					raise ValueError("The GRM and GRM names file are not the same size")
+			if self.grm.shape[0] != self.grm.shape[1]:
+				raise ValueError("GRM: " + args.grm[0] + " is not a square matrix")
+
+			grm_names = pd.read_csv(args.grm_names[0], sep = '\t', header = 0)
+			if self.grm.shape[0] != grm_names.shape[0]:
+				raise ValueError("The GRM and GRM names file are not the same size")
 				
-				if args.sample_id is not None:
-					grm_names = grm_names.rename(columns = {args.sample_id:'sample_id'})
+			if args.sample_id is not None:
+				grm_names = grm_names.rename(columns = {args.sample_id:'sample_id'})
 
-				grm_names = grm_names.sample_id.to_list()
-				#TODO compare grm names to self.events.index
-				grm = grm[self.events.rownum.to_numpy(), :]
-				grm = grm[:, self.events.rownum.to_numpy()]
-				#grm = grm.reindex(index = self.events.index, columns = self.events.index)
-				self.grm.append(grm)
+			intersect = set(self.events.index) & set(grm_names.sample_id)
+			#TODO: double check this works as expected, make sure it doesn't change order based on intersect
+			if len(intersect) != self.N:
+				self.events = self.events[self.events.index.isin(intersect)]
+			
+			self.grm = self.grm[self.events.rownum.to_numpy(), :]
+			self.grm = self.grm[:, self.events.rownum.to_numpy()]
 
 		else:
 			raise ValueError("Need to provide GRM or features to create ``GRM``")
@@ -94,8 +111,11 @@ class IO():
 						raise ValueError("The sample ids are not consistent across file")
 
 			self.fixed = self.fixed.reindex(index = self.events.index)
-			self.fixed = self.fixed.to_numpy()
+			fixed = self.fixed.to_numpy()
+			self.fixed = np.memmap(path.join(self.temp, 'fixed.dat'), dtype='float64', mode='w+', shape=(self.N,2))
+			self.fixed[:] = fixed 
 			self.M = self.fixed.shape[1]
+			del fixed, columns, one_hot # not necessary but want to clean as I go
 		else:
 			self.fixed = np.array([])
 			self.M = 0
@@ -119,17 +139,15 @@ class IO():
 			help = 'path to tab delim files containing precomputed relatedness matrices. There is no header row in any file nor is there a column for sample ids. Only use one of -g/-grm or -r/--random')
 		optional.add_argument('-gn', '--grm_names', dest = 'grm_names', nargs='*',
 			help = 'path to tab delim files(s) containing sample_id (in order) for each grm with a header row. Must provide one for each grm. Only use one of -g/--grm or -r/--random.')
-		#optional.add_argument('-m', '--method', dest = 'method', default = "BOBYQA",
-		#	help = 'solver method passed to nlopt, default is BOBYQA')
 		optional.add_argument('-o', '--output', dest = 'output', default = 'results.txt',
 			help = 'path to output file. Default = results.txt')
 	
 		args = parser.parse_args()
-		if args.fixed is None and args.random is None and args.grm is None:
-			raise ValueError("There is are no fixed or random effects, please include at least one")
+		if args.random is None and args.grm is None:
+			raise ValueError("There is no random effect or GRM, please include at least one")
 
 		if args.fixed is not None:
-			if not os.path.isfile(args.fixed):
+			if not path.isfile(args.fixed):
 				raise ValueError("The fixed effect file does not exist")
 
 		if args.random is not None and args.grm is not None:
@@ -137,7 +155,7 @@ class IO():
 
 		if args.random is not None:
 			for i in args.random:
-				if not os.path.isfile(i):
+				if not path.isfile(i):
 					raise ValueError("Random effect input file: " + i + " does not exist")
 
 		if args.grm is not None:
@@ -147,9 +165,9 @@ class IO():
 				raise ValueError("The number of arguments passed to -g/--grm does not equal the number of arguments passed to -gn/--grm_names")
 			
 			for i in range(0, len(args.grm)):
-				if not os.path.isfile(args.grm[i]):
+				if not path.isfile(args.grm[i]):
 					raise ValueError("GRM input file: " + args.grm[i] + " does not exist")
-				if not os.path.isfile(args.grm_names[i]):
+				if not path.isfile(args.grm_names[i]):
 					raise ValueError("GRM input file: " + args.grm_names[i] + " does not exist")
 
 		return(args)
@@ -182,3 +200,4 @@ class IO():
 		random = random.reindex(index = self.events.index)
 
 		self.grm.append((random.dot(random.T) / random.shape[1]).to_numpy())
+
