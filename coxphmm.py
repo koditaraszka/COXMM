@@ -29,7 +29,7 @@ class COXPHMM(IO):
 		self.risk_set[:,:] = np.tril(np.ones((self.N, self.N))).T
 		self.risk_eta = np.memmap(path.join(self.temp, 'risk_eta.dat'), dtype='float64', mode='w+', shape=(self.N,self.N))
 		self.grm_u_tau = np.memmap(path.join(self.temp, 'grm_utau.dat'), dtype='float64', mode='w+', shape=(self.N))
-		self.loc = np.memmap(path.join(self.temp, 'loc.dat'), dtype='float64', mode='w+', shape=(np.where(self.events==1).shape[0]))
+		self.loc = np.memmap(path.join(self.temp, 'loc.dat'), dtype='float64', mode='w+', shape=(np.where(self.events==1)[0].shape[0]))
 		self.loc[:] = np.where(self.events==1)
 		self.ONE = np.memmap(path.join(self.temp, 'one.dat'), dtype='float64', mode='w+', shape=(self.N))
 		self.MTW = np.memmap(path.join(self.temp, 'MTW.dat'), dtype='float64', mode='w+', shape=(self.N, self.N))
