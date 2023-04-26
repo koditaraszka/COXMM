@@ -46,18 +46,26 @@ class COXPHMM(IO):
 		print(soln)
 
 	# for each non-censored person, who is at risk at that time
+	# don't fix right censoring now do it inline
 	def R_j(self):
-		# TODO check edge cases
+		# fixing left censoring, TODO vet the approach
 		if np.unique(self.times[:,0]).shape[0] > 1:
 			min_start = np.min(self.times[:,0])
 			late_start = np.where(self.times[:,0]!=min_start)[0]
 			for who in late_start:
-				startTime = self.times[who,0]
+				start_time = self.times[who,0]
 				for before in range(0,who):
-					if startTime <= self.times[before,0]:
-						self.risk_set[0:(before-1),who] = 0
+					if start_time <= self.times[before,0]:
+						self.risk_set[0:before,who] = 0
 						break
-		# don't fix right censoring now do it inline
+		# fixing duplicated stopping times
+		for stop_time in self.dup_ttop:
+			same_time = np.where(self.times[:,1]==stop_time)
+			min_pos = np.min(who)
+			max_pos = np.max(who)
+			# risk set is currently a
+			for who in same_time:
+				self.risk_set[min_pos:(max_pos+1),who] = 1
 
 	# l_1 as defined in equations 2 in COXMEG paper (mostly their notation)
 	def l_1(self, tau):

@@ -44,7 +44,8 @@ class IO():
 
 		elif args.grm is not None:
 			for i in range(0, len(args.grm)):
-				grm = pd.read_csv(args.grm[i], sep = '\t', header = None)
+				grm = np.loadtxt(args.grm[i])
+				#pd.read_csv(args.grm[i], sep = '\t', header = None)
 				if grm.shape[0] != grm.shape[1]:
 					raise ValueError("GRM: " + args.grm[i] + " is not a square matrix")
 
@@ -53,17 +54,14 @@ class IO():
 					raise ValueError("The GRM and GRM names file are not the same size")
 				
 				if args.sample_id is not None:
-						grm_names = grm_names.rename(columns = {args.sample_id:'sample_id'})
+					grm_names = grm_names.rename(columns = {args.sample_id:'sample_id'})
 
 				grm_names = grm_names.sample_id.to_list()
-				grm.index, grm.columns = grm_names, grm_names		
-				if i != 0:
-					compare = np.unique(self.grm[0].sort_index().index == grm.sort_index().index)
-					if len(compare) > 1 or compare[0] == False:
-						raise ValueError("The sample ids are not consistent across GRM files")
-
-				grm = grm.reindex(index = self.events.index, columns = self.events.index)
-				self.grm.append(grm.to_numpy())
+				#TODO compare grm names to self.events.index
+				grm = grm[self.events.rownum.to_numpy(), :]
+				grm = grm[:, self.events.rownum.to_numpy()]
+				#grm = grm.reindex(index = self.events.index, columns = self.events.index)
+				self.grm.append(grm)
 
 		else:
 			raise ValueError("Need to provide GRM or features to create ``GRM``")
@@ -160,7 +158,8 @@ class IO():
 		self.events = pd.read_csv(file, sep = '\t', header = 0)
 		if self.events.shape[1] != 4:
 			raise ValueError("There should be four columns in the events/outcome file")
-
+		
+		self.events['rownum'] = self.events.index
 		if sample_id is not None:
 			self.events = self.events.rename(columns = {sample_id:'sample_id'})
 		
@@ -170,13 +169,6 @@ class IO():
 			print(str(orig - self.events.shape[0]) + " individuals dropped because start time is after end time")
 			self.N = self.events.shape[0]
 	
-		#TODO implement Breslow
-		if self.events[(self.events.stop.duplicated())].shape[0] > 0:
-			print(str(self.events[(self.events.stop.duplicated())].shape[0]) + " stop times are duplicated, adding random noise with mean 0 and variance 1e-6")
-			print("TODO: implement Breslow method of tie breaking")
-			noise = np.random.normal(0, 1e-6, self.events.stop[(self.events.stop.duplicated())].shape[0])
-			self.events.loc[(self.events.stop.duplicated()), 'stop'] = self.events.stop[(self.events.stop.duplicated())] + noise
-		
 		self.events = self.events.sort_values("stop", ascending=True).reset_index(drop=True)
 		self.events = self.events.set_index('sample_id')
 
