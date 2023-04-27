@@ -5,90 +5,105 @@ This is prelim code for cox proportional hazard mulitple mixed model components 
 '''
 
 #TODO: double check that left censoring and right censoring work correctly
+#TODO: implement Breslow tie breaker, now we add noise to them :(
 #TODO: classier handling of output/write to file
 #TODO: estimate standard error of tau
-#TODO: offer a correction to the estimated tau, it should be 2*tau/(1+tau)
+#TODO: offer a correction to the estimated tau
 
 import numpy as np
 import pandas as pd
 import pybobyqa
-from input import IO
-import os.path as path
+from utils import Utils
 
-class COXPHMM(IO):
+class COXPHMM(Utils):
 
 	def __init__(self):
 		super().__init__()
-		#From IO, we have N, M, grm, times, events, fixed, output
-		self.beta = None
-		if self.M > 0:
-			self.beta = np.memmap(path.join(self.temp, 'beta.dat'), dtype='float64', mode='w+', shape=(self.M))	
-		self.u = np.memmap(path.join(self.temp, 'u.dat'), dtype='float64', mode='w+', shape=(self.N))
-		self.exp_eta = np.memmap(path.join(self.temp, 'exp_eta.dat'), dtype='float64', mode='w+', shape=(self.N))
-		self.risk_set = np.memmap(path.join(self.temp, 'risk_set.dat'), dtype='float64', mode='w+', shape=(self.N, self.N))
-		self.risk_set[:,:] = np.tril(np.ones((self.N, self.N))).T
-		self.risk_eta = np.memmap(path.join(self.temp, 'risk_eta.dat'), dtype='float64', mode='w+', shape=(self.N,self.N))
-		self.grm_u_tau = np.memmap(path.join(self.temp, 'grm_utau.dat'), dtype='float64', mode='w+', shape=(self.N))
-		self.loc = np.memmap(path.join(self.temp, 'loc.dat'), dtype='int64', mode='w+', shape=(np.where(self.events==1)[0].shape[0]))
-		self.loc[:] = np.where(self.events==1)[0]
-		self.ONE = np.memmap(path.join(self.temp, 'one.dat'), dtype='float64', mode='w+', shape=(self.N))
-		self.MTW = np.memmap(path.join(self.temp, 'MTW.dat'), dtype='float64', mode='w+', shape=(self.N, self.N))
-		self.WB = np.memmap(path.join(self.temp, 'WB.dat'), dtype='float64', mode='w+', shape=(self.N))
-		self.A = np.memmap(path.join(self.temp, 'A.dat'), dtype='float64', mode='w+', shape=(self.N))
-		self.B = np.memmap(path.join(self.temp, 'B.dat'), dtype='float64', mode='w+', shape=(self.N))
-		self.H = np.memmap(path.join(self.temp, 'H.dat'), dtype='float64', mode='w+', shape=(self.N, self.N))
-		self.s = np.memmap(path.join(self.temp, 's.dat'), dtype='float64', mode='w+', shape=(self.M+self.N))
-		self.V = np.memmap(path.join(self.temp, 'V.dat'), dtype='float64', mode='w+', shape=(self.M+self.N, self.M+self.N))
-		self.theta = np.memmap(path.join(self.temp, 'theta.dat'), dtype='float64', mode='w+', shape=(self.M+self.N))	
-		tau = 0.5
+		self.R_j()
+		tau = 0.5 #initized value, may allow user input
 		soln = pybobyqa.solve(self.marg_loglike, x0 = [tau], bounds = ([1e-4], [5]))
 		print(soln)
 
-	# for each non-censored person, who is at risk at that time
-	# don't fix right censoring now do it inline
+	# who is at risk when the jth individual has their event
 	def R_j(self):
+		# read in items
+		self.io_times()
+		self.io_risk_set(True)		
+
 		# fixing left censoring, TODO vet the approach
-		if np.unique(self.times[:,0]).shape[0] > 1:
-			min_start = np.min(self.times[:,0])
-			late_start = np.where(self.times[:,0]!=min_start)[0]
-			for who in late_start:
-				start_time = self.times[who,0]
-				for before in range(0,who):
-					if start_time <= self.times[before,0]:
-						self.risk_set[0:before,who] = 0
-						break
-		
+		#if np.unique(self.times[:,0]).shape[0] > 1:
+		#	min_start = np.min(self.times[:,0])
+		#	late_start = np.where(self.times[:,0]!=min_start)[0]
+		#	for who in late_start:
+		#		start_time = self.times[who,0]
+		#		for before in range(0,who):
+		#			if start_time <= self.times[before,0]:
+		#				self.risk_set[0:before,who] = 0
+		#				break
+
 		# fixing duplicated stopping times
-		unq, count = np.unique(self.times[:,1], return_counts=True)
-		dups = np.where(count>1)[0]
-		if dups.shape[0] > 0:
-			for stop_time in unq[dups]:
-				same_time = np.where(self.times[:,1]==stop_time)
-				min_pos = np.min(who)
-				max_pos = np.max(who)
-				# risk set is currently a
-				for who in same_time:
-					self.risk_set[min_pos:(max_pos+1),who] = 1
+		#for stop_time in self.dup_ttop:
+		#	same_time = np.where(self.times[:,1]==stop_time)
+		#	min_pos = np.min(who)
+		#	max_pos = np.max(who)
+			# risk set is currently a
+		#	for who in same_time:
+		#		self.risk_set[min_pos:(max_pos+1),who] = 1
+
+		# clean up items
+		self.risk_set.flush()
+		self.risk_set, self.times = None, None
 
 	# l_1 as defined in equations 2 in COXMEG paper (mostly their notation)
 	def l_1(self, tau):
-		# eta = Xb + Zu
-		# works even when no fixed effects, just become 0
-		if self.M > 0:
-			self.exp_eta[:] = np.exp(np.matmul(self.fixed, self.beta) + self.u)
-		else:
-			self.exp_eta[:] = np.exp(self.u)
+		# read in items
+		self.io_theta()
+		self.io_exp_eta()
+		self.io_risk_set()
+		self.io_risk_eta()
+		self.io_loc()
+		self.io_grm()
+		self.io_grm_u()
 
-		self.risk_eta[:,:] = np.multiply(self.risk_set[self.loc,:][0], self.exp_eta)
-		# NOTE: changing the order of tau division may impact likelihood precision
-		self.grm_u_tau[:] = np.matmul(self.grm, self.u)/tau
-		return (np.sum(np.log(self.exp_eta[self.loc])) - np.sum(np.log(np.sum(self.risk_eta,axis=1))) \
-				 - 0.5*(np.matmul(self.u.T, self.grm_u_tau)))	
+		# eta = Xb + Zu, theta =[beta, u]
+		if self.M > 0:
+			# only read it if needed
+			self.io_fixed()
+			self.exp_eta[:] = np.exp(np.matmul(self.fixed, self.theta[0:self.M]) + self.theta[self.M:(self.M+self.N)])
+			self.fixed = None
+		else:
+			self.exp_eta[:] = np.exp(self.theta)
+		self.risk_eta[:,:] = np.multiply(self.risk_set[self.loc,:], self.exp_eta)
+		self.grm_u[:] = np.matmul(self.grm, self.theta[self.M:(self.M+self.N)])
+		
+		result = (np.sum(np.log(self.exp_eta[self.loc])) - np.sum(np.log(np.sum(self.risk_eta,axis=1))) \
+				 - 1/(2*tau)*(np.matmul(self.theta[self.M:(self.M+self.N)].T, self.grm_u))) 
+		
+		# clean up items
+		self.exp_eta.flush()
+		self.risk_eta.flush()
+		self.grm_u.flush()
+		self.theta, self.grm, self.exp_eta, self.risk_set, self.risk_eta, self.loc, self.grm_u = None, None, None, None, None, None, None
+		return result
 
 	# l_2 as defined in Equation 3 in COXMEG paper (mostly their notation)
 	def l_1_deriv(self, tau):
+		# read in items
+		self.io_MTW()
+		self.io_risk_set()
+		self.io_exp_eta()
+		self.io_events()
+		self.io_A()
+		self.io_B()
+		self.io_WB()	
+		self.io_H()
+		self.io_s()
+		self.io_V()
+		self.io_grm()
+		self.io_grm_u()
+
 		# W = diag(exp(eta)) but working with exp(eta) explicitly (self.exp_eta)
-		self.MTW[:,:] = np.multiply(self.risk_set, self.exp_eta)
+		self.MTW[:] = np.multiply(self.risk_set, self.exp_eta)
 		# A = diag(D) diag^-1(M^TW1)
 		self.A[:] = np.multiply(self.events, 1/np.sum(self.MTW, axis=1))
 		# B = diag(MA1)
@@ -105,6 +120,7 @@ class COXPHMM(IO):
 		self.s[self.M:(self.M+self.N)] = self.events - self.WB
 		# one, two, three only exist if there were fixed effect/covariates
 		if self.M > 0:
+			self.io_fixed()
 			#V[two] -- X^TH
 			self.V[0:self.M, self.M:(self.M+self.N)] = np.matmul(self.fixed.T, self.H)
 			#V[one] -- X^THX = (V[two]X)
@@ -113,7 +129,21 @@ class COXPHMM(IO):
 			self.V[self.M:(self.M+self.N), 0:self.M] = self.V[0:self.M, self.M:(self.M+self.N)].T
 			#s[one] -- X^T(d - WMA1)
 			self.s[0:self.M] = np.matmul(self.fixed.T, self.s[self.M:(self.M+self.N)])
-		self.s[self.M:(self.M+self.N)] = self.s[self.M:(self.M+self.N)] - self.grm_u_tau
+			self.fixed = None
+		# wait to do this in case, we need d - WMA1 if self.M > 0
+		self.s[self.M:(self.M+self.N)] = self.s[self.M:(self.M+self.N)] - self.grm_u/tau
+		
+		#clean up items, no changes to exp_eta, grm_u
+		self.MTW.flush()
+		self.A.flush()
+		self.B.flush()
+		self.WB.flush()
+		self.H.flush()
+		self.V.flush()
+		self.s.flush()
+		self.MTW, self.risk_set, self.exp_eta, self.events = None, None, None, None
+		self.A, self.B, self.WB, self.H = None, None, None, None
+		self.s, self.V, self.grm, self.grm_u = None, None, None, None
 
 	# treat l_2 as a marginal log-likelihood to get estimate for tau
 	def marg_loglike(self, tau):	
@@ -129,10 +159,20 @@ class COXPHMM(IO):
 			damp = 1
 			loglike = update_loglike
 			self.l_1_deriv(tau)
-			self.theta[:] = np.linalg.solve(self.V, self.s)
-			self.u[:] = self.u + self.theta[self.M:(self.M+self.N)]	
+			
+			# read in items
+			self.io_theta()
+			self.io_update()
+			self.io_s()
+			self.io_V()
+			
+			self.update[:] = np.linalg.solve(self.V, self.s)
+			self.theta[self.M:(self.M+self.N)] = self.theta[self.M:(self.M+self.N)] + self.update[self.M:(self.M+self.N)]
 			if self.M > 0:
-				self.beta[:] = self.beta + self.theta[0:self.M]
+				self.theta[0:self.M] = self.theta[0:self.M] + self.update[0:self.M]
+			self.update.flush()
+			self.theta.flush()
+			self.update, self.theta, self.s, self.V = None, None, None, None
 
 			update_loglike = self.l_1(tau)
 			# TODO: add comments to describe
@@ -145,10 +185,20 @@ class COXPHMM(IO):
 					print("The optimization of PPL may not converge.")
 					diff_loglike = 0
 					break
-				self.theta[:] = damp*self.theta
-				self.u[:] = self.u - self.theta[self.M:(self.M+self.N)]
+
+				# read in items
+				self.io_update()
+				self.io_theta()
+				self.update[:] = damp*self.update
+				self.theta[self.M:(self.M+self.N)] = self.theta[self.M:(self.M+self.N)] - self.update[self.M:(self.M+self.N)] 
 				if self.M > 0:
-					self.beta[:] = self.beta - self.theta[0:self.M]
+					self.theta[0:self.M] = self.theta[0:self.M] - self.update[0:self.M]
+				
+				# clean up items
+				self.theta.flush()
+				self.update.flush()
+				self.update, self.theta = None, None
+				
 				update_loglike = self.l_1(tau)
 				diff_loglike = update_loglike - loglike
 
@@ -157,9 +207,14 @@ class COXPHMM(IO):
 		if run == max_runs:
 			print("The PPL ran for the maximum number of iterations (" + str(max_runs) + "). It probably didn't converge")
 			
+		# read in items
+		self.io_V()
 		_, log_det = np.linalg.slogdet(self.V)
+		# clean up items
+		self.V = None
 		return (self.N*np.log(tau) + log_det + (-2)*update_loglike)
 
 
 if __name__=="__main__":
 	COXPHMM()
+
