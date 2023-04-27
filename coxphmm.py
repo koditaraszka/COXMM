@@ -26,9 +26,7 @@ class COXPHMM(Utils):
 
 	# who is at risk when the jth individual has their event
 	def R_j(self):
-		# read in items
-		self.io_times()
-		self.io_risk_set(True)		
+		self.risk_set[:,:] = np.tril(np.ones((self.N, self.N))).T
 
 		# fixing left censoring, TODO vet the approach
 		#if np.unique(self.times[:,0]).shape[0] > 1:
@@ -52,25 +50,13 @@ class COXPHMM(Utils):
 
 		# clean up items
 		self.risk_set.flush()
-		self.risk_set, self.times = None, None
 
 	# l_1 as defined in equations 2 in COXMEG paper (mostly their notation)
 	def l_1(self, tau):
-		# read in items
-		self.io_theta()
-		self.io_exp_eta()
-		self.io_risk_set()
-		self.io_risk_eta()
-		self.io_loc()
-		self.io_grm()
-		self.io_grm_u()
-
 		# eta = Xb + Zu, theta =[beta, u]
 		if self.M > 0:
 			# only read it if needed
-			self.io_fixed()
 			self.exp_eta[:] = np.exp(np.matmul(self.fixed, self.theta[0:self.M]) + self.theta[self.M:(self.M+self.N)])
-			self.fixed = None
 		else:
 			self.exp_eta[:] = np.exp(self.theta)
 		self.risk_eta[:,:] = np.multiply(self.risk_set[self.loc,:], self.exp_eta)
@@ -83,25 +69,10 @@ class COXPHMM(Utils):
 		self.exp_eta.flush()
 		self.risk_eta.flush()
 		self.grm_u.flush()
-		self.theta, self.grm, self.exp_eta, self.risk_set, self.risk_eta, self.loc, self.grm_u = None, None, None, None, None, None, None
 		return result
 
 	# l_2 as defined in Equation 3 in COXMEG paper (mostly their notation)
 	def l_1_deriv(self, tau):
-		# read in items
-		self.io_MTW()
-		self.io_risk_set()
-		self.io_exp_eta()
-		self.io_events()
-		self.io_A()
-		self.io_B()
-		self.io_WB()	
-		self.io_H()
-		self.io_s()
-		self.io_V()
-		self.io_grm()
-		self.io_grm_u()
-
 		# W = diag(exp(eta)) but working with exp(eta) explicitly (self.exp_eta)
 		self.MTW[:] = np.multiply(self.risk_set, self.exp_eta)
 		# A = diag(D) diag^-1(M^TW1)
@@ -120,7 +91,6 @@ class COXPHMM(Utils):
 		self.s[self.M:(self.M+self.N)] = self.events - self.WB
 		# one, two, three only exist if there were fixed effect/covariates
 		if self.M > 0:
-			self.io_fixed()
 			#V[two] -- X^TH
 			self.V[0:self.M, self.M:(self.M+self.N)] = np.matmul(self.fixed.T, self.H)
 			#V[one] -- X^THX = (V[two]X)
@@ -129,7 +99,6 @@ class COXPHMM(Utils):
 			self.V[self.M:(self.M+self.N), 0:self.M] = self.V[0:self.M, self.M:(self.M+self.N)].T
 			#s[one] -- X^T(d - WMA1)
 			self.s[0:self.M] = np.matmul(self.fixed.T, self.s[self.M:(self.M+self.N)])
-			self.fixed = None
 		# wait to do this in case, we need d - WMA1 if self.M > 0
 		self.s[self.M:(self.M+self.N)] = self.s[self.M:(self.M+self.N)] - self.grm_u/tau
 		
@@ -141,9 +110,6 @@ class COXPHMM(Utils):
 		self.H.flush()
 		self.V.flush()
 		self.s.flush()
-		self.MTW, self.risk_set, self.exp_eta, self.events = None, None, None, None
-		self.A, self.B, self.WB, self.H = None, None, None, None
-		self.s, self.V, self.grm, self.grm_u = None, None, None, None
 
 	# treat l_2 as a marginal log-likelihood to get estimate for tau
 	def marg_loglike(self, tau):	
@@ -160,19 +126,12 @@ class COXPHMM(Utils):
 			loglike = update_loglike
 			self.l_1_deriv(tau)
 			
-			# read in items
-			self.io_theta()
-			self.io_update()
-			self.io_s()
-			self.io_V()
-			
 			self.update[:] = np.linalg.solve(self.V, self.s)
 			self.theta[self.M:(self.M+self.N)] = self.theta[self.M:(self.M+self.N)] + self.update[self.M:(self.M+self.N)]
 			if self.M > 0:
 				self.theta[0:self.M] = self.theta[0:self.M] + self.update[0:self.M]
 			self.update.flush()
 			self.theta.flush()
-			self.update, self.theta, self.s, self.V = None, None, None, None
 
 			update_loglike = self.l_1(tau)
 			# TODO: add comments to describe
@@ -186,9 +145,6 @@ class COXPHMM(Utils):
 					diff_loglike = 0
 					break
 
-				# read in items
-				self.io_update()
-				self.io_theta()
 				self.update[:] = damp*self.update
 				self.theta[self.M:(self.M+self.N)] = self.theta[self.M:(self.M+self.N)] - self.update[self.M:(self.M+self.N)] 
 				if self.M > 0:
@@ -197,7 +153,6 @@ class COXPHMM(Utils):
 				# clean up items
 				self.theta.flush()
 				self.update.flush()
-				self.update, self.theta = None, None
 				
 				update_loglike = self.l_1(tau)
 				diff_loglike = update_loglike - loglike
@@ -207,11 +162,7 @@ class COXPHMM(Utils):
 		if run == max_runs:
 			print("The PPL ran for the maximum number of iterations (" + str(max_runs) + "). It probably didn't converge")
 			
-		# read in items
-		self.io_V()
 		_, log_det = np.linalg.slogdet(self.V)
-		# clean up items
-		self.V = None
 		return (self.N*np.log(tau) + log_det + (-2)*update_loglike)
 
 
