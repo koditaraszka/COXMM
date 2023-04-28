@@ -37,13 +37,19 @@ class IO():
 	# most of the memory maps are made here
 	def mem_map(self):
 		a = np.memmap(path.join(self.temp, 'times.dat'), dtype='float64', mode='w+', shape=(self.N,2))
+		del a
 		b = np.memmap(path.join(self.temp, "risk_set.dat"), dtype='float64', mode='w+', shape=(self.M+self.N))
+		del b
 		c = np.memmap(path.join(self.temp, "theta.dat"), dtype='float64', mode='w+', shape=(self.M+self.N))
+		del c
 		d = np.memmap(path.join(self.temp, "exp_eta.dat"), dtype='float64', mode='w+', shape=(self.N))
+		del d
 		e = np.memmap(path.join(self.temp, "grm_u.dat"), dtype='float64', mode='w+', shape=(self.N))
+		del e
 		f = np.memmap(path.join(self.temp, "s.dat"), dtype='float64', mode='w+', shape=(self.M+self.N))
+		del f
 		g = np.memmap(path.join(self.temp, "V.dat"), dtype='float64', mode='w+', shape=(self.M+self.N, self.M+self.N))
-		del a,b,c,d,e,f,g
+		del g
 
 	def temp_dir(self, clean=False):
 		if clean:
