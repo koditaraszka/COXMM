@@ -20,43 +20,57 @@ class IO():
 		self.output = ''
 		self.N = 0
 		self.M = 0
-		self.grm = None
-		self.events = None
-		self.fixed = None
+		self.uncensored = 0
+		self.grm = 'grm.dat'
+		self.fixed = 'fixed.dat'
+		self.events = 'events.dat'
+		self.times = 'times.dat'
+		self.loc = 'loc.dat'
+		self.risk_set = 'risk_set.dat'
+		self.theta = 'theta.dat'
+		self.exp_eta = 'exp_eta.dat'
+		self.grm_u = 'grm_u.dat'
+		self.s = 's.dat'
+		self.V = 'V.dat'
 		self.setup()
-		self.times = np.memmap(path.join(self.temp, 'times.dat'), dtype='float64', mode='w+', shape=(self.N,2))
-		self.times[:,:] = self.events[['start', 'stop']].to_numpy()
-		self.times.flush()
-		events = self.events.event.to_numpy()
-		self.uncensored = np.where(events==1)[0].shape[0]
-		self.loc = np.memmap(path.join(self.temp, 'loc.dat'), dtype='int64', mode='w+', shape=(self.uncensored))
-		self.loc[:] = np.where(events==1)[0]
-		self.loc.flush()
-		self.events = np.memmap(path.join(self.temp, 'events.dat'), dtype='int64', mode='w+', shape=(self.N))
-		self.events[:] = events
-		self.events.flush()
+
+	# most of the memory maps are made here
+	def mem_map(self):
+		a = np.memmap(path.join(self.temp, 'times.dat'), dtype='float64', mode='w+', shape=(self.N,2))
+		b = np.memmap(path.join(self.temp, "risk_set.dat"), dtype='float64', mode='w+', shape=(self.M+self.N))
+		c = np.memmap(path.join(self.temp, "theta.dat"), dtype='float64', mode='w+', shape=(self.M+self.N))
+		d = np.memmap(path.join(self.temp, "exp_eta.dat"), dtype='float64', mode='w+', shape=(self.N))
+		e = np.memmap(path.join(self.temp, "grm_u.dat"), dtype='float64', mode='w+', shape=(self.N))
+		f = np.memmap(path.join(self.temp, "s.dat"), dtype='float64', mode='w+', shape=(self.M+self.N))
+		g = np.memmap(path.join(self.temp, "V.dat"), dtype='float64', mode='w+', shape=(self.M+self.N, self.M+self.N))
+		del a,b,c,d,e,f,g
+
+	def temp_dir(self, clean=False):
+		if clean:
+			print("TODO: delete temp directory")
+		else:
+			print("TODO: generate real temp directory")
 
 	# this function calls the parser and processes the input
 	def setup(self):
 		args = self.def_parser()
 		self.output = args.output
-		self.process_events(args.sample_id, args.events)
+		events = self.process_events(args.sample_id, args.events)
 
 		if len(args.grm) > 1:
 			print("Warning: Only reading in/working with the first GRM")
 
-		self.grm = np.memmap(path.join(self.temp, "grm.dat"), dtype='float64', mode='w+', shape=(self.N,self.N))
+		new_grm = np.memmap(path.join(self.temp, "grm.dat"), dtype='float64', mode='w+', shape=(self.N,self.N))
 		grm = np.memmap(args.grm[0], dtype='float64', mode='r', shape=(self.N,self.N))
 		if grm.shape[0] != grm.shape[1]:
 			raise ValueError("GRM: " + args.grm[0] + " is not a square matrix")
 		# intentionally reassign variable, not memory
-		grm = grm[self.events.rownum.to_numpy(), :]
-		grm = grm[:, self.events.rownum.to_numpy()]
+		grm = grm[events.rownum.to_numpy(), :]
+		grm = grm[:, events.rownum.to_numpy()]
 		Lambda, U = np.linalg.eigh(grm)#, driver = 'evd')
 		Lambda[Lambda < 1e-10] = 1e-6		
-		self.grm[:,:] = np.matmul(np.matmul(U, np.diag(1/Lambda)), np.transpose(U))
-		self.grm.flush()
-		del grm, Lambda, U
+		new_grm[:,:] = np.matmul(np.matmul(U, np.diag(1/Lambda)), np.transpose(U))
+		del new_grm
 
 		if args.fixed is not None:
 			print("Warning: minimal checks on issues with fixed effects input. Be careful")
@@ -81,12 +95,22 @@ class IO():
 						fixed[col] = (fixed[col] - mean)/np.sqrt(var)
 						print("mean: " + str(fixed[col].mean()) + " var: " + str(fixed[col].var()))
 
-			fixed = fixed.reindex(index = self.events.index)
+			fixed = fixed.reindex(index = events.index)
 			fixed = fixed.to_numpy()
 			self.M = fixed.shape[1]
-			self.fixed = np.memmap(path.join(self.temp, "fixed.dat"), dtype='float64', mode='w+', shape=(self.N, self.M))
-			self.fixed[:,:] = fixed
-			self.fixed.flush()
+			new_fixed = np.memmap(path.join(self.temp, "fixed.dat"), dtype='float64', mode='w+', shape=(self.N, self.M))
+			new_fixed[:,:] = fixed
+			del new_fixed
+		
+		self.mem_map()
+		times = np.memmap(path.join(self.temp, "times.dat"), dtype='float64', mode='w+', shape=(self.N,2))
+		times[:,:] = events[['start', 'stop']].to_numpy() 
+		new_events = np.memmap(path.join(self.temp, "events.dat"), dtype='float64', mode='w+', shape=(self.N))
+		new_events[:] = events.event.to_numpy()
+		self.uncensored = np.where(events==1)[0].shape[0]
+		loc = np.memmap(path.join(self.temp, "loc.dat"), dtype='int64', mode='w+', shape=(self.uncensored))
+		loc[:] = np.where(events==1)[0]
+		del loc, times, new_events
 
 	# this function contains the parser and it's arguments
 	def def_parser(self):
@@ -120,21 +144,21 @@ class IO():
 		return(args)
 
 	def process_events(self, sample_id, file):
-		self.events = pd.read_csv(file, sep = '\t', header = 0)
+		events = pd.read_csv(file, sep = '\t', header = 0)
 		print("Warning: There are no checks for ordering between GRM and events file")
-		if self.events.shape[1] != 4:
+		if events.shape[1] != 4:
 			raise ValueError("There should be four columns in the events/outcome file")
 		
-		self.events['rownum'] = self.events.index
+		events['rownum'] = events.index
 		if sample_id is not None:
-			self.events = self.events.rename(columns = {sample_id:'sample_id'})
+			events = events.rename(columns = {sample_id:'sample_id'})
 		
-		self.N = self.events.shape[0]
-		self.events = self.events[(self.events.stop > self.events.start)]
-		if self.events.shape[0] != self.N:
-			print(str(orig - self.events.shape[0]) + " individuals dropped because start time is after end time")
-			self.N = self.events.shape[0]
+		self.N = events.shape[0]
+		events = events[(events.stop > events.start)]
+		if events.shape[0] != self.N:
+			print(str(orig - events.shape[0]) + " individuals dropped because start time is after end time")
+			self.N = events.shape[0]
 	
-		self.events = self.events.sort_values("stop", ascending=True).reset_index(drop=True)
-		self.events = self.events.set_index('sample_id')
-
+		events = events.sort_values("stop", ascending=True).reset_index(drop=True)
+		events = events.set_index('sample_id')
+		return events
