@@ -27,17 +27,14 @@ class IO():
 		self.times = np.memmap(path.join(self.temp, 'times.dat'), dtype='float64', mode='w+', shape=(self.N,2))
 		self.times[:,:] = self.events[['start', 'stop']].to_numpy()
 		self.times.flush()
-		self.times = None
 		events = self.events.event.to_numpy()
 		self.uncensored = np.where(events==1)[0].shape[0]
 		self.loc = np.memmap(path.join(self.temp, 'loc.dat'), dtype='int64', mode='w+', shape=(self.uncensored))
 		self.loc[:] = np.where(events==1)[0]
 		self.loc.flush()
-		self.loc = None
 		self.events = np.memmap(path.join(self.temp, 'events.dat'), dtype='int64', mode='w+', shape=(self.N))
 		self.events[:] = events
 		self.events.flush()
-		self.events = None
 
 	# this function calls the parser and processes the input
 	def setup(self):
@@ -59,7 +56,6 @@ class IO():
 		Lambda[Lambda < 1e-10] = 1e-6		
 		self.grm[:,:] = np.matmul(np.matmul(U, np.diag(1/Lambda)), np.transpose(U))
 		self.grm.flush()
-		self.grm = None
 		del grm, Lambda, U
 
 		if args.fixed is not None:
@@ -91,7 +87,6 @@ class IO():
 			self.fixed = np.memmap(path.join(self.temp, "fixed.dat"), dtype='float64', mode='w+', shape=(self.N, self.M))
 			self.fixed[:,:] = fixed
 			self.fixed.flush()
-			self.fixed = None
 
 	# this function contains the parser and it's arguments
 	def def_parser(self):
