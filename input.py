@@ -61,6 +61,7 @@ class IO():
 	def setup(self):
 		args = self.def_parser()
 		self.output = args.output
+		self.temp = args.temp
 		events = self.process_events(args.sample_id, args.events)
 
 		if len(args.grm) > 1:
@@ -135,6 +136,8 @@ class IO():
 			help = 'path tab delim file containing fixed effects features. First row containing column names')
 		optional.add_argument('-o', '--output', dest = 'output', default = 'results.txt',
 			help = 'path to output file. Default = results.txt')
+		optional.add_argument('-t', '--temp', dest = 'temp', default = 'temp',
+			help = 'path to temp directory. Default = temp')
 	
 		args = parser.parse_args()
 		if args.fixed is not None:
