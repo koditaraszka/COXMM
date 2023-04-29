@@ -28,29 +28,30 @@ class COXPHMM(IO):
 	# who is at risk when the jth individual has their event
 	# TODO actually do the work for the risk set
 	def R_j(self):
-		risk_set = np.memmap(path.join(self.temp, self.risk_set), dtype='float64', mode='r+', shape=(self.N, self.N))
-		risk_set[:,:] = np.tril(np.ones((self.N, self.N))).T
-		del risk_set
+		print('do nothing for now')
+		#risk_set = np.memmap(path.join(self.temp, self.risk_set), dtype='float64', mode='r+', shape=(self.N,self.N))
+		#del risk_set
 
 	# l_1 as defined in equations 2 in COXself.MEG paper (mostly their notation)
 	def l_1(self, tau):
 		# eta = Xb + Zu, theta =[beta, u]
 		exp_eta = np.memmap(path.join(self.temp, self.exp_eta), dtype='float64', mode='r+', shape=(self.N))
 		theta = np.memmap(path.join(self.temp, self.theta), dtype='float64', mode='r+', shape=(self.N+self.M))
-		risk_set = np.memmap(path.join(self.temp, self.risk_set), dtype='float64', mode='r+', shape=(self.N,self.N))
-		loc = np.memmap(path.join(self.temp, self.loc), dtype='int64', mode='r+', shape=(self.uncensored))
 		if self.M > 0:
-			fixed = np.memmap(path.join(self.temp, self.fixed), dtype='float64', mode='r+', shape=(self.N, self.M))
+			fixed = np.memmap(path.join(self.temp, self.fixed), dtype='float64', mode='r', shape=(self.N, self.M))
 			exp_eta[:] = np.exp(np.matmul(fixed, theta[0:self.M]) + theta[self.M:(self.M+self.N)])
 		else:
 			exp_eta[:] = np.exp(theta)
 		
+		risk_set = np.memmap(path.join(self.temp, self.risk_set), dtype='float64', mode='r+', shape=(self.N,self.N))
+		loc = np.memmap(path.join(self.temp, self.loc), dtype='int64', mode='r', shape=(self.uncensored))
 		risk_eta = np.multiply(risk_set[loc,:], exp_eta)
 		del risk_set
  
-		grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='r+', shape=(self.N,self.N))
+		grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='r', shape=(self.N,self.N))
 		grm_u = np.memmap(path.join(self.temp, self.grm_u), dtype='float64', mode='r+', shape=(self.N))
 		grm_u[:] = np.matmul(grm, theta[self.M:(self.M+self.N)])
+		del grm	
 		
 		result = (np.sum(np.log(exp_eta[loc])) - np.sum(np.log(np.sum(risk_eta,axis=1))) \
 				 - 1/(2*tau)*(np.matmul(theta[self.M:(self.M+self.N)].T, grm_u))) 
@@ -63,33 +64,32 @@ class COXPHMM(IO):
 	def l_1_deriv(self, tau):
 		risk_set = np.memmap(path.join(self.temp, self.risk_set), dtype='float64', mode='r+', shape=(self.N,self.N))
 		exp_eta = np.memmap(path.join(self.temp, self.exp_eta), dtype='float64', mode='r+', shape=(self.N))
-		events = np.memmap(path.join(self.temp, self.events), dtype='float64', mode='r+', shape=(self.N))
 
 		# W = diag(exp(eta)) but working with exp(eta) explicitly (exp_eta)
 		MTW = np.multiply(risk_set, exp_eta)
 		# A = diag(D) diag^-1(self.M^TW1)
+		events = np.memmap(path.join(self.temp, self.events), dtype='int64', mode='r', shape=(self.N))
 		A = np.multiply(events, 1/np.sum(MTW, axis=1))
-		# B = diag(MA1)
-		B = np.sum(np.multiply(risk_set.T, A), axis = 1)
-		# H = WB - QQ^T = WB - WMA^2M^TW
-		# NOTE: WB = WMA1
-		WB = np.multiply(exp_eta, B)
+		
+		# NOTE: WB = WMA1 
+		WB = np.multiply(exp_eta, np.sum(np.multiply(risk_set.T, A), axis = 1))
+		# setting score function s with parts [one, two]
+		s = np.memmap(path.join(self.temp, self.s), dtype='float64', mode='r+', shape=(self.N+self.M))
+		# s[two] -- d - WMA1 - (Sigma^-1 gamma) / tau (save sigma^-1 gamma / tau for now)
+		s[self.M:(self.M+self.N)] = events - WB
+		del events
+		# H = WB - QQ^T = WB - WMA^2M^TW	
 		H = np.diag(WB) - np.matmul(np.multiply(np.multiply(exp_eta, risk_set.T), np.square(A)), MTW)
-		del risk_set, exp_eta
+		del risk_set, exp_eta, WB, MTW, A
 		# setting information matrix V with quadrants [[one, two], [three, four]]
 		#V[four] -- H + sigma^-1/tau: always exists since we're looking at random effect		 
 		V = np.memmap(path.join(self.temp, self.V), dtype='float64', mode='r+', shape=(self.N+self.M, self.N+self.M))
-		grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='r+', shape=(self.N, self.N))
+		grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='r', shape=(self.N, self.N))
 		V[self.M:(self.M+self.N), self.M:(self.M+self.N)] = np.add(H, (grm/tau))
 		del grm
-		# setting score function s with parts [one, two]
-		# s[two] -- d - WMA1 - (Sigma^-1 gamma) / tau (save sigma^-1 gamma / tau for now)
-		s = np.memmap(path.join(self.temp, self.s), dtype='float64', mode='r+', shape=(self.N+self.M))
-		s[self.M:(self.M+self.N)] = events - WB
-		del events
 		# one, two, three only exist if there were fixed effect/covariates
 		if self.M > 0:
-			fixed = np.memmap(path.join(self.temp, self.fixed), dtype='float64', mode='r+', shape=(self.N, self.M))
+			fixed = np.memmap(path.join(self.temp, self.fixed), dtype='float64', mode='r', shape=(self.N, self.M))
 			#V[two] -- X^TH
 			V[0:self.M, self.M:(self.M+self.N)] = np.matmul(fixed.T, H)
 			#V[one] -- X^THX = (V[two]X)
@@ -98,10 +98,12 @@ class COXPHMM(IO):
 			V[self.M:(self.M+self.N), 0:self.M] = V[0:self.M, self.M:(self.M+self.N)].T
 			#s[one] -- X^T(d - WMA1)
 			s[0:self.M] = np.matmul(fixed.T, s[self.M:(self.M+self.N)])
+			del fixed
+		del H
 		# wait to do this in case, we need d - WMA1 if self.M > 0
 		grm_u = np.memmap(path.join(self.temp, self.grm_u), dtype='float64', mode='r+', shape=(self.N))
 		s[self.M:(self.M+self.N)] = s[self.M:(self.M+self.N)] - grm_u/tau		
-		del V, s
+		del V, s, grm_u
 
 	# treat l_2 as a marginal log-likelihood to get estimate for tau
 	def marg_loglike(self, tau):	

@@ -36,20 +36,19 @@ class IO():
 
 	# most of the memory maps are made here
 	def mem_map(self):
-		a = np.memmap(path.join(self.temp, 'times.dat'), dtype='float64', mode='w+', shape=(self.N,2))
-		del a
-		b = np.memmap(path.join(self.temp, "risk_set.dat"), dtype='float64', mode='w+', shape=(self.M+self.N))
-		del b
-		c = np.memmap(path.join(self.temp, "theta.dat"), dtype='float64', mode='w+', shape=(self.M+self.N))
-		del c
-		d = np.memmap(path.join(self.temp, "exp_eta.dat"), dtype='float64', mode='w+', shape=(self.N))
-		del d
-		e = np.memmap(path.join(self.temp, "grm_u.dat"), dtype='float64', mode='w+', shape=(self.N))
-		del e
-		f = np.memmap(path.join(self.temp, "s.dat"), dtype='float64', mode='w+', shape=(self.M+self.N))
-		del f
-		g = np.memmap(path.join(self.temp, "V.dat"), dtype='float64', mode='w+', shape=(self.M+self.N, self.M+self.N))
-		del g
+		risk_set = np.memmap(path.join(self.temp, self.risk_set), dtype='float64', mode='w+', shape=(self.N,self.N))
+		risk_set[:,:] = np.tril(np.ones((self.N, self.N))).T
+		del risk_set
+		theta = np.memmap(path.join(self.temp, self.theta), dtype='float64', mode='w+', shape=(self.M+self.N))
+		del theta
+		exp_eta = np.memmap(path.join(self.temp, self.exp_eta), dtype='float64', mode='w+', shape=(self.N))
+		del exp_eta
+		grm_u = np.memmap(path.join(self.temp, self.grm_u), dtype='float64', mode='w+', shape=(self.N))
+		del grm_u
+		s = np.memmap(path.join(self.temp, self.s), dtype='float64', mode='w+', shape=(self.M+self.N))
+		del s
+		V = np.memmap(path.join(self.temp, self.V), dtype='float64', mode='w+', shape=(self.M+self.N, self.M+self.N))
+		del V
 
 	def temp_dir(self, clean=False):
 		if clean:
@@ -67,7 +66,7 @@ class IO():
 		if len(args.grm) > 1:
 			print("Warning: Only reading in/working with the first GRM")
 
-		new_grm = np.memmap(path.join(self.temp, "grm.dat"), dtype='float64', mode='w+', shape=(self.N,self.N))
+		new_grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='w+', shape=(self.N,self.N))
 		grm = np.memmap(args.grm[0], dtype='float64', mode='r', shape=(self.N,self.N))
 		if grm.shape[0] != grm.shape[1]:
 			raise ValueError("GRM: " + args.grm[0] + " is not a square matrix")
@@ -105,17 +104,17 @@ class IO():
 			fixed = fixed.reindex(index = events.index)
 			fixed = fixed.to_numpy()
 			self.M = fixed.shape[1]
-			new_fixed = np.memmap(path.join(self.temp, "fixed.dat"), dtype='float64', mode='w+', shape=(self.N, self.M))
+			new_fixed = np.memmap(path.join(self.temp, self.fixed), dtype='float64', mode='w+', shape=(self.N, self.M))
 			new_fixed[:,:] = fixed
 			del new_fixed
 		
 		self.mem_map()
-		times = np.memmap(path.join(self.temp, "times.dat"), dtype='float64', mode='w+', shape=(self.N,2))
+		times = np.memmap(path.join(self.temp, self.times), dtype='float64', mode='w+', shape=(self.N,2))
 		times[:,:] = events[['start', 'stop']].to_numpy() 
-		new_events = np.memmap(path.join(self.temp, "events.dat"), dtype='float64', mode='w+', shape=(self.N))
+		new_events = np.memmap(path.join(self.temp, self.events), dtype='int64', mode='w+', shape=(self.N))
 		new_events[:] = events.event.to_numpy()
 		self.uncensored = np.where(events==1)[0].shape[0]
-		loc = np.memmap(path.join(self.temp, "loc.dat"), dtype='int64', mode='w+', shape=(self.uncensored))
+		loc = np.memmap(path.join(self.temp, self.loc), dtype='int64', mode='w+', shape=(self.uncensored))
 		loc[:] = np.where(events==1)[0]
 		del loc, times, new_events
 
