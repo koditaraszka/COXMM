@@ -49,7 +49,7 @@ class COXPHMM(IO):
 		risk_eta = np.multiply(risk_set[loc,:], exp_eta)
 		del risk_set
 
-		results = np.sum(np.log(exp_eta[loc])) - np.sum(np.log(np.sum(risk_eta,axis=1)))
+		result = np.sum(np.log(exp_eta[loc])) - np.sum(np.log(np.sum(risk_eta,axis=1)))
 		del exp_eta, loc, risk_eta 
 		
 		grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='r', shape=(self.N,self.N))
