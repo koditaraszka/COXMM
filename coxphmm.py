@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import pybobyqa
 import os.path as path
+from scipy.optimize import minimize
 from input import IO
 
 class COXPHMM(IO):
@@ -24,6 +25,21 @@ class COXPHMM(IO):
 		tau = 0.5 #initized value, may allow user input
 		soln = pybobyqa.solve(self.marg_loglike, x0 = [tau], bounds = ([1e-4], [5]))
 		print(soln)
+		print(str(soln.x[0]) + " +/- " + str(np.sqrt(1/self.second_deriv(soln.x[0]))))
+		#soln = minimize(self.marg_loglike, x0 = [tau], method = 'Nelder-Mead') 
+		#soln = minimize(self.marg_loglike, x0 = [tau], jac = self.first_deriv, hess = self.second_deriv, method = 'Newton-CG') 
+	
+	def first_deriv(self, tau):
+		theta = np.memmap(path.join(self.temp, self.theta), dtype='float64', mode='r', shape=(self.N+self.M))
+		grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='r', shape=(self.N,self.N))
+		ut_grm_u = np.matmul(theta[self.M:(self.M+self.N)].T, np.matmul(grm, theta[self.M:(self.M+self.N)]))
+		return ((0.5*ut_grm_u - (self.N - 1)*tau)/(tau ** 2))
+
+	def second_deriv(self, tau):
+		theta = np.memmap(path.join(self.temp, self.theta), dtype='float64', mode='r', shape=(self.N+self.M))
+		grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='r', shape=(self.N,self.N))
+		ut_grm_u = np.matmul(theta[self.M:(self.M+self.N)].T, np.matmul(grm, theta[self.M:(self.M+self.N)]))
+		return (((0.5*self.N - 0.5)*tau - ut_grm_u)/(tau ** 3))
 
 	# who is at risk when the jth individual has their event
 	# TODO actually do the work for the risk set
@@ -49,14 +65,15 @@ class COXPHMM(IO):
 		risk_eta = np.multiply(risk_set[loc,:], exp_eta)
 		del risk_set
 
-		result = np.sum(np.log(exp_eta[loc])) - np.sum(np.log(np.sum(risk_eta,axis=1)))
-		del exp_eta, loc, risk_eta 
-		
+		#result = np.sum(np.log(exp_eta[loc])) - np.sum(np.log(np.sum(risk_eta,axis=1)))
+		result = np.sum(np.log(exp_eta[loc]) - np.log(np.sum(risk_eta,axis=1)))
+		del exp_eta, loc, risk_eta
+
 		grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='r', shape=(self.N,self.N))
 		grm_u = np.memmap(path.join(self.temp, self.grm_u), dtype='float64', mode='r+', shape=(self.N))
 		grm_u[:] = np.matmul(grm, theta[self.M:(self.M+self.N)])
-		del grm	
-		
+		del grm
+
 		result -= 1/(2*tau)*(np.matmul(theta[self.M:(self.M+self.N)].T, grm_u))
 		del theta, grm_u
 		return result
@@ -161,8 +178,8 @@ class COXPHMM(IO):
 			
 		V = np.memmap(path.join(self.temp, self.V), dtype='float64', mode='r', shape=(self.N+self.M,self.N+self.M))
 		_, log_det = np.linalg.slogdet(V)
-		return (self.N*np.log(tau) + log_det + (-2)*update_loglike)
-
+		
+		return (-1*(update_loglike - self.N*np.log(tau)/2 - log_det/2))
 
 if __name__=="__main__":
 	COXPHMM()
