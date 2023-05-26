@@ -161,15 +161,19 @@ class IO():
 		return(args)
 
 	def process_events(self, sample_id, file):
+		grm_names = pd.read_csv(args.grm_names, sep = '\t', header = 0)
+		if args.sample_id is not None:
+			grm_names = grm_names.rename(columns = {args.sample_id:'sample_id'})
+		grm_names["rownum"] = events.index
+		grm_names = grm_names.set_index('sample_id')
+
 		events = pd.read_csv(file, sep = '\t', header = 0)
-		print("Warning: There are no checks for ordering between GRM and events file")
 		if events.shape[1] != 4:
-			raise ValueError("There should be four columns in the events/outcome file")
-		
-		events['rownum'] = events.index
+			raise ValueError("There should be four columns in the events/outcome file")	
 		if sample_id is not None:
-			events = events.rename(columns = {sample_id:'sample_id'})
-		
+			events = events.rename(columns = {sample_id:'sample_id'})	
+		events = events.set_index('sample_id')
+		events = pd.concat([grm_names, events])
 		self.N = events.shape[0]
 		events = events[(events.stop > events.start)]
 		if events.shape[0] != self.N:
@@ -177,5 +181,4 @@ class IO():
 			self.N = events.shape[0]
 	
 		events = events.sort_values("stop", ascending=True).reset_index(drop=True)
-		events = events.set_index('sample_id')
 		return events
