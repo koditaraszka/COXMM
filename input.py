@@ -39,14 +39,19 @@ class IO():
 		risk_set = np.memmap(path.join(self.temp, self.risk_set), dtype='float64', mode='w+', shape=(self.N,self.N))
 		risk_set[:,:] = np.tril(np.ones((self.N, self.N))).T
 		del risk_set
+
 		theta = np.memmap(path.join(self.temp, self.theta), dtype='float64', mode='w+', shape=(self.M+self.N))
 		del theta
+		
 		exp_eta = np.memmap(path.join(self.temp, self.exp_eta), dtype='float64', mode='w+', shape=(self.N))
 		del exp_eta
+		
 		grm_u = np.memmap(path.join(self.temp, self.grm_u), dtype='float64', mode='w+', shape=(self.N))
 		del grm_u
+		
 		s = np.memmap(path.join(self.temp, self.s), dtype='float64', mode='w+', shape=(self.M+self.N))
 		del s
+		
 		V = np.memmap(path.join(self.temp, self.V), dtype='float64', mode='w+', shape=(self.M+self.N, self.M+self.N))
 		del V
 
@@ -59,13 +64,15 @@ class IO():
 	# this function calls the parser and processes the input
 	def setup(self):
 		args = self.def_parser()
+		# set output/temp
 		self.output = args.output
 		self.temp = args.temp
+		# set events
 		events = self.process_events(args.sample_id, args.events)
 
+		# set GRM/random effect
 		if len(args.grm) > 1:
 			print("Warning: Only reading in/working with the first GRM")
-
 		new_grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='w+', shape=(self.N,self.N))
 		grm = np.memmap(args.grm[0], dtype='float64', mode='r', shape=(self.N,self.N))
 		if grm.shape[0] != grm.shape[1]:
@@ -78,6 +85,7 @@ class IO():
 		new_grm[:,:] = np.matmul(np.matmul(U, np.diag(1/Lambda)), np.transpose(U))
 		del new_grm
 
+		# set fixed effects
 		if args.fixed is not None:
 			print("Warning: minimal checks on issues with fixed effects input. Be careful")
 			fixed = pd.read_csv(args.fixed, sep = '\t', header = 0)
@@ -108,6 +116,7 @@ class IO():
 			new_fixed[:,:] = fixed
 			del new_fixed
 		
+		# initialize all other variables
 		self.mem_map()
 		times = np.memmap(path.join(self.temp, self.times), dtype='float64', mode='w+', shape=(self.N,2))
 		times[:,:] = events[['start', 'stop']].to_numpy() 

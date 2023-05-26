@@ -29,11 +29,11 @@ class COXPHMM(IO):
 		#soln = minimize(self.marg_loglike, x0 = [tau], method = 'Nelder-Mead') 
 		#soln = minimize(self.marg_loglike, x0 = [tau], jac = self.first_deriv, hess = self.second_deriv, method = 'Newton-CG') 
 	
-	def first_deriv(self, tau):
-		theta = np.memmap(path.join(self.temp, self.theta), dtype='float64', mode='r', shape=(self.N+self.M))
-		grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='r', shape=(self.N,self.N))
-		ut_grm_u = np.matmul(theta[self.M:(self.M+self.N)].T, np.matmul(grm, theta[self.M:(self.M+self.N)]))
-		return ((0.5*ut_grm_u - (self.N - 1)*tau)/(tau ** 2))
+	#def first_deriv(self, tau):
+	#	theta = np.memmap(path.join(self.temp, self.theta), dtype='float64', mode='r', shape=(self.N+self.M))
+	#	grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='r', shape=(self.N,self.N))
+	#	ut_grm_u = np.matmul(theta[self.M:(self.M+self.N)].T, np.matmul(grm, theta[self.M:(self.M+self.N)]))
+	#	return ((0.5*ut_grm_u - (self.N - 1)*tau)/(tau ** 2))
 
 	def second_deriv(self, tau):
 		theta = np.memmap(path.join(self.temp, self.theta), dtype='float64', mode='r', shape=(self.N+self.M))
@@ -45,8 +45,32 @@ class COXPHMM(IO):
 	# TODO actually do the work for the risk set
 	def R_j(self):
 		print('do nothing for now')
-		#risk_set = np.memmap(path.join(self.temp, self.risk_set), dtype='float64', mode='r+', shape=(self.N,self.N))
-		#del risk_set
+		risk_set = np.memmap(path.join(self.temp, self.risk_set), dtype='float64', mode='r+', shape=(self.N,self.N))
+		times = np.memmap(path.join(self.temp, self.times), dtype='float64', mode='r', shape=(self.N,2))
+		if np.unique(times[:,0]).shape[0] > 1:
+			min_start = np.min(times[:,0])
+			late_start = np.where(times[:,0]!=min_start)[0]
+			for who in late_start:
+				start_time = times[who,0]
+				for before in range(0,who):
+					if start_time <= times[before,0]:
+						risk_set[0:before,who] = 0
+						break
+		
+		# fixing duplicated stopping times
+		unq, count = np.unique(times[:,1], return_counts=True)
+		dups = np.where(count>1)[0]
+		if dups.shape[0] > 0:
+			for stop_time in unq[dups]:
+				same_time = np.where(times[:,1]==stop_time)
+				min_pos = np.min(who)
+				max_pos = np.max(who)
+				# risk set is currently a
+				for who in same_time:
+					risk_set[min_pos:(max_pos+1),who] = 1
+
+
+		del risk_set
 
 	# l_1 as defined in equations 2 in COXself.MEG paper (mostly their notation)
 	def l_1(self, tau):
