@@ -68,7 +68,7 @@ class IO():
 		self.output = args.output
 		self.temp = args.temp
 		# set events
-		events = self.process_events(args.sample_id, args.events)
+		events = self.process_events(args.sample_id, args.events, args.grm_names)
 
 		# set GRM/random effect
 		if len(args.grm) > 1:
@@ -136,7 +136,8 @@ class IO():
 			help = 'path to outcome file which contains four columns: sample_id, start, stop, event with sample_id changeable by argument -s/--sample_id')
 		required.add_argument('-g', '--grm', dest = 'grm', nargs='*',
 			help = 'path to tab delim files containing precomputed relatedness matrices. There is no header row in any file nor is there a column for sample ids.')
-
+		required.add_argument('-n', '--grm_names', dest = 'grm_names',
+                        help = 'path to file containing one column of names/sample_ids with grm sample order. There is a header row which makes the sample_id in the events file.')
 		optional = parser.add_argument_group('Optional Arguments')
 		optional.add_argument('-s', '--sample_id', dest = 'sample_id',
 			help = 'column name across events/fixed effects files. Order in events file same order as GRM. Default is sample_id')
@@ -160,24 +161,26 @@ class IO():
 
 		return(args)
 
-	def process_events(self, sample_id, file):
-		grm_names = pd.read_csv(args.grm_names, sep = '\t', header = 0)
-		if args.sample_id is not None:
-			grm_names = grm_names.rename(columns = {args.sample_id:'sample_id'})
-		grm_names["rownum"] = events.index
-		grm_names = grm_names.set_index('sample_id')
-
+	def process_events(self, sample_id, file, names):
+		print(names)
+		grm_names = pd.read_csv(names, header = 0)
 		events = pd.read_csv(file, sep = '\t', header = 0)
+		
 		if events.shape[1] != 4:
 			raise ValueError("There should be four columns in the events/outcome file")	
 		if sample_id is not None:
+			grm_names = grm_names.rename(columns = {sample_id:'sample_id'})
 			events = events.rename(columns = {sample_id:'sample_id'})	
+		
+		grm_names["rownum"] = grm_names.index
+		grm_names = grm_names.set_index('sample_id')
+		
 		events = events.set_index('sample_id')
-		events = pd.concat([grm_names, events])
+		events = pd.concat([grm_names, events], axis=1)
 		self.N = events.shape[0]
 		events = events[(events.stop > events.start)]
 		if events.shape[0] != self.N:
-			print(str(orig - events.shape[0]) + " individuals dropped because start time is after end time")
+			print(str(self.N - events.shape[0]) + " individuals dropped because start time is after end time")
 			self.N = events.shape[0]
 	
 		events = events.sort_values("stop", ascending=True).reset_index(drop=True)

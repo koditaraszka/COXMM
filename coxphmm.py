@@ -44,7 +44,6 @@ class COXPHMM(IO):
 	# who is at risk when the jth individual has their event
 	# TODO actually do the work for the risk set
 	def R_j(self):
-		print('do nothing for now')
 		risk_set = np.memmap(path.join(self.temp, self.risk_set), dtype='float64', mode='r+', shape=(self.N,self.N))
 		times = np.memmap(path.join(self.temp, self.times), dtype='float64', mode='r', shape=(self.N,2))
 		if np.unique(times[:,0]).shape[0] > 1:
@@ -63,12 +62,11 @@ class COXPHMM(IO):
 		if dups.shape[0] > 0:
 			for stop_time in unq[dups]:
 				same_time = np.where(times[:,1]==stop_time)
-				min_pos = np.min(who)
-				max_pos = np.max(who)
+				min_pos = np.min(same_time)
+				max_pos = np.max(same_time)
 				# risk set is currently a
 				for who in same_time:
 					risk_set[min_pos:(max_pos+1),who] = 1
-
 
 		del risk_set
 
