@@ -85,15 +85,10 @@ class COXPHMM(IO):
 		risk_set = np.memmap(path.join(self.temp, self.risk_set), dtype='float64', mode='r', shape=(self.N,self.N))
 		loc = np.memmap(path.join(self.temp, self.loc), dtype='int64', mode='r', shape=(self.uncensored))
 		risk_eta = np.multiply(risk_set[loc,:], exp_eta)
-		print(risk_eta.shape)
 		del risk_set
 
 		result = np.sum(np.log(exp_eta[loc])) - np.sum(np.log(np.sum(risk_eta,axis=1)))
 		#result = np.sum(np.log(exp_eta[loc]) - np.log(np.sum(risk_eta,axis=1)))
-		print('one')
-		print(np.sum(np.log(exp_eta[loc])))
-		print('two')
-		print(np.sum(np.log(np.sum(risk_eta,axis=1))))		
 		del exp_eta, loc, risk_eta
 
 		grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='r', shape=(self.N,self.N))
@@ -102,10 +97,6 @@ class COXPHMM(IO):
 		del grm
 
 		result -= 1/(2*tau)*(np.matmul(theta[self.M:(self.M+self.N)].T, grm_u))
-		print('three')
-		print(1/(2*tau)*(np.matmul(theta[self.M:(self.M+self.N)].T, grm_u)))
-		print('one-two-three')
-		print(result)
 		del theta, grm_u
 		return result
 
