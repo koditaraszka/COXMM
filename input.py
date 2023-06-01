@@ -122,9 +122,9 @@ class IO():
 		times[:,:] = events[['start', 'stop']].to_numpy() 
 		new_events = np.memmap(path.join(self.temp, self.events), dtype='int64', mode='w+', shape=(self.N))
 		new_events[:] = events.event.to_numpy()
-		self.uncensored = np.where(events==1)[0].shape[0]
+		self.uncensored = np.where(events.event==1)[0].shape[0]
 		loc = np.memmap(path.join(self.temp, self.loc), dtype='int64', mode='w+', shape=(self.uncensored))
-		loc[:] = np.where(events==1)[0]
+		loc[:] = np.where(events.event==1)[0]
 		del loc, times, new_events
 
 	# this function contains the parser and it's arguments
@@ -162,7 +162,6 @@ class IO():
 		return(args)
 
 	def process_events(self, sample_id, file, names):
-		print(names)
 		grm_names = pd.read_csv(names, header = 0)
 		events = pd.read_csv(file, sep = '\t', header = 0)
 		
@@ -173,6 +172,7 @@ class IO():
 			events = events.rename(columns = {sample_id:'sample_id'})	
 		
 		grm_names["rownum"] = grm_names.index
+		grm_names["real_id"] = grm_names.sample_id
 		grm_names = grm_names.set_index('sample_id')
 		
 		events = events.set_index('sample_id')
@@ -184,4 +184,6 @@ class IO():
 			self.N = events.shape[0]
 	
 		events = events.sort_values("stop", ascending=True).reset_index(drop=True)
+		events = events.rename(columns = {'real_id':'sample_id'})
+		events = events.set_index('sample_id')
 		return events
