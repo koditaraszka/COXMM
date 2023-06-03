@@ -18,6 +18,7 @@ class IO():
 	def __init__(self):
 		self.temp = 'temp'
 		self.output = ''
+		self.grmN = 0
 		self.N = 0
 		self.M = 0
 		self.uncensored = 0
@@ -163,7 +164,7 @@ class IO():
 
 	def process_events(self, sample_id, file, names):
 		grm_names = pd.read_csv(names, header = 0)
-		self.grmN = pd.size[0]
+		self.grmN = grm_names.shape[0]
 		events = pd.read_csv(file, sep = '\t', header = 0)
 		
 		if events.shape[1] != 4:
@@ -177,7 +178,7 @@ class IO():
 		grm_names = grm_names.set_index('sample_id')
 		
 		events = events.set_index('sample_id')
-		events = pd.concat([grm_names, events], axis=1)
+		events = pd.concat([grm_names, events], axis=1, join='inner')
 		self.N = events.shape[0]
 		events = events[(events.stop > events.start)]
 		if events.shape[0] != self.N:
