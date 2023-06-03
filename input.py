@@ -74,7 +74,7 @@ class IO():
 		if len(args.grm) > 1:
 			print("Warning: Only reading in/working with the first GRM")
 		new_grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='w+', shape=(self.N,self.N))
-		grm = np.memmap(args.grm[0], dtype='float64', mode='r', shape=(self.N,self.N))
+		grm = np.memmap(args.grm[0], dtype='float64', mode='r', shape=(self.grmN,self.grmN))
 		if grm.shape[0] != grm.shape[1]:
 			raise ValueError("GRM: " + args.grm[0] + " is not a square matrix")
 		# intentionally reassign variable, not memory
@@ -163,6 +163,7 @@ class IO():
 
 	def process_events(self, sample_id, file, names):
 		grm_names = pd.read_csv(names, header = 0)
+		self.grmN = pd.size[0]
 		events = pd.read_csv(file, sep = '\t', header = 0)
 		
 		if events.shape[1] != 4:
