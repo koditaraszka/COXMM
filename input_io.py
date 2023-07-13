@@ -70,8 +70,8 @@ class IO():
 		self.temp = args.temp
 		# set events
 		events = self.process_events(args.sample_id, args.events, args.grm_names)
-		print('events')
-		print(events.head())
+		#print('events')
+		#print(events.head())
 		# set GRM/random effect
 		if len(args.grm) > 1:
 			print("Warning: Only reading in/working with the first GRM")
@@ -112,8 +112,8 @@ class IO():
 						print("mean: " + str(fixed[col].mean()) + " var: " + str(fixed[col].var()))
 
 			fixed = fixed.reindex(index = events.index)
-			print('fixed')
-			print(fixed.head())
+			#print('fixed')
+			#print(fixed.head())
 			fixed = fixed.to_numpy()
 			self.M = fixed.shape[1]
 			new_fixed = np.memmap(path.join(self.temp, self.fixed), dtype='float64', mode='w+', shape=(self.N, self.M))

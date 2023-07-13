@@ -127,22 +127,25 @@ class COXPHMM(IO):
 		# H = WB - QQ^T = WB - WMA^2M^TW	
 		WMA2MTW = np.matmul(np.multiply(np.multiply(exp_eta, risk_set.T), np.square(A)), MTW)
 		H = np.diag(WB) - WMA2MTW #np.matmul(np.multiply(np.multiply(exp_eta, risk_set.T), np.square(A)), MTW)
-		del risk_set, exp_eta, MTW, A
+		del risk_set, exp_eta, MTW, A, WB
 		# setting information matrix V with quadrants [[one, two], [three, four]]
 		#V[four] -- H + sigma^-1/tau: always exists since we're looking at random effect		 
 		V = np.memmap(path.join(self.temp, self.V), dtype='float64', mode='w+', shape=(self.N+self.M, self.N+self.M))
 		grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='r', shape=(self.N, self.N))
 		V[self.M:(self.M+self.N), self.M:(self.M+self.N)] = np.add(H, (grm/tau))
-		del grm, H
-		# one, two, three only exist if there were fixed effect/covariates
+		del grm, WMA2MTW
+
+                # one, two, three only exist if there were fixed effect/covariates
 		if self.M > 0:
 			fixed = np.memmap(path.join(self.temp, self.fixed), dtype='float64', mode='r', shape=(self.N, self.M))
+
+
 			#V[two] -- X^TH
-			V[0:self.M, self.M:(self.M+self.N)] = (np.multiply(fixed.T, WB).T - np.matmul(WMA2MTW, fixed)).T
+			V[0:self.M, self.M:(self.M+self.N)] = np.matmul(fixed.T, H)
 			#print('V[0:self.M, self.M:(self.M+5)]')
 			#print(V[0:self.M, self.M:(self.M+5)])
 			#V[one] -- X^THX = (V[two]X)
-			V[0:self.M, 0:self.M] = np.matmul(V[0:self.M, self.M:(self.M+self.N)], fixed).T
+			V[0:self.M, 0:self.M] = np.matmul(V[0:self.M, self.M:(self.M+self.N)], fixed)
 			#print('V[0:self.M, 0:self.M]')
 			#print(V[0:self.M, 0:self.M])
 			#V[three] -- HX = (X^TH)^T = V[two]^T
@@ -152,7 +155,7 @@ class COXPHMM(IO):
 			#s[one] -- X^T(d - WMA1)
 			s[0:self.M] = np.matmul(fixed.T, s[self.M:(self.M+self.N)])
 			del fixed
-		del WB, WMA2MTW
+		del H
 		# wait to do this in case, we need d - WMA1 if self.M > 0
 		grm_u = np.memmap(path.join(self.temp, self.grm_u), dtype='float64', mode='r', shape=(self.N))
 		s[self.M:(self.M+self.N)] = s[self.M:(self.M+self.N)] - grm_u/tau		
