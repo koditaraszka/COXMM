@@ -32,7 +32,7 @@ class IO():
 	def setup(self):
 		args = self.def_parser()
 		self.output = args.output
-		self.process_events(args.sample_id, args.events, args.grm_names)
+		self.events = self.process_events(args.sample_id, args.events, args.grm_names)
 		if len(args.grm) > 1:
 			print("Warning: Only reading in/working with the first GRM")
 
@@ -72,9 +72,6 @@ class IO():
 			self.fixed = self.fixed.reindex(index = self.events.index)
 			self.fixed = self.fixed.to_numpy()
 			self.M = self.fixed.shape[1]
-		else:
-			self.fixed = np.array([])
-			self.M = 0
 
 	# this function contains the parser and it's arguments
 	def def_parser(self):
@@ -113,27 +110,28 @@ class IO():
 	def process_events(self, sample_id, file, names):
 		grm_names = pd.read_csv(names, header = 0)
 		self.grmN = grm_names.shape[0]
+		events = pd.read_csv(file, sep = '\t', header = 0)
 		
-		self.events = pd.read_csv(file, sep = '\t', header = 0)
-		if self.events.shape[1] != 4:
+		if events.shape[1] != 4:
 			raise ValueError("There should be four columns in the events/outcome file")
 		if sample_id is not None:
 			grm_names = grm_names.rename(columns = {sample_id:'sample_id'})
-			self.events = self.events.rename(columns = {sample_id:'sample_id'})
+			events = events.rename(columns = {sample_id:'sample_id'})
 
 		grm_names["rownum"] = grm_names.index
 		grm_names["real_id"] = grm_names.sample_id
 		grm_names = grm_names.set_index('sample_id')
 
-		self.events = self.events.set_index('sample_id')
-		self.events = pd.concat([grm_names, self.events], axis=1, join='inner')
-		self.N = self.events.shape[0]
+		events = events.set_index('sample_id')
+		events = pd.concat([grm_names, events], axis=1, join='inner')
+		self.N = events.shape[0]
 
-		self.events = self.events[(self.events.stop > self.events.start)]
-		if self.events.shape[0] != self.N:
-			print(str(orig - self.events.shape[0]) + " individuals dropped because start time is after end time")
-			self.N = self.events.shape[0]
+		events = events[(events.stop > events.start)]
+		if events.shape[0] != self.N:
+			print(str(orig - events.shape[0]) + " individuals dropped because start time is after end time")
+			self.N = events.shape[0]
 
-		self.events = self.events.sort_values("stop", ascending=True).reset_index(drop=True)
-		self.events = self.events.rename(columns= {'real_id':'sample_id'})
-		self.events = self.events.set_index('sample_id')
+		events = events.sort_values("stop", ascending=True).reset_index(drop=True)
+		events = events.rename(columns= {'real_id':'sample_id'})
+		events = events.set_index('sample_id')
+		return events
