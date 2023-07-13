@@ -1,7 +1,7 @@
 '''
 Author: Kodi Taraszka
 Email: Kodi_Taraszka@dfci.harvard.edu
-This is prelim code for cox proportional hazard mulitple mixed model components (CoxPHself.Mself.M)
+This is prelim code for cox proportional hazard mixed model components (CoxMM)
 '''
 
 #TODO: double check that left censoring and right censoring work correctly
@@ -13,138 +13,105 @@ This is prelim code for cox proportional hazard mulitple mixed model components 
 import numpy as np
 import pandas as pd
 import pybobyqa
-import os.path as path
 from scipy.optimize import minimize
 from input import IO
 
-class COXPHMM(IO):
+class COXMM(IO):
 
 	def __init__(self):
 		super().__init__()
-		self.R_j()
-		tau = 0.5 #initized value, may allow user input
+		#From IO, we have N, M, grm, times, events, fixed, output
+		self.beta = np.zeros(self.M)	
+		self.theta = np.zeros(self.N+self.M)
+		self.update = np.zeros(self.N+self.M)
+		self.exp_eta = np.zeros(self.N)
+		self.risk_set = np.tril(np.ones((self.N, self.N))).T
+		self.grm_u = np.zeros(self.N)
+		self.loc = np.where(self.events==1)
+		self.ONE = np.ones(self.N)
+		self.MTW = np.zeros((self.N, self.N))
+		self.WB = np.zeros(self.N)
+		self.A = np.identity(self.N)
+		self.B = np.zeros(self.N)
+		self.H = np.identity(self.N)
+		self.s = np.zeros((self.M+self.N))
+		self.V = np.zeros((self.M+self.N, self.M+self.N))
+		tau = 0.5
 		soln = pybobyqa.solve(self.marg_loglike, x0 = [tau], bounds = ([1e-4], [5]))
 		print(soln)
-		print(str(soln.x[0]) + " +/- " + str(np.sqrt(1/self.second_deriv(soln.x[0]))))
-		#soln = minimize(self.marg_loglike, x0 = [tau], method = 'Nelder-Mead') 
-		#soln = minimize(self.marg_loglike, x0 = [tau], jac = self.first_deriv, hess = self.second_deriv, method = 'Newton-CG') 
-	
-	#def first_deriv(self, tau):
-	#	theta = np.memmap(path.join(self.temp, self.theta), dtype='float64', mode='r', shape=(self.N+self.M))
-	#	grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='r', shape=(self.N,self.N))
-	#	ut_grm_u = np.matmul(theta[self.M:(self.M+self.N)].T, np.matmul(grm, theta[self.M:(self.M+self.N)]))
-	#	return ((0.5*ut_grm_u - (self.N - 1)*tau)/(tau ** 2))
 
-	def second_deriv(self, tau):
-		theta = np.memmap(path.join(self.temp, self.theta), dtype='float64', mode='r', shape=(self.N+self.M))
-		grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='r', shape=(self.N,self.N))
-		ut_grm_u = np.matmul(theta[self.M:(self.M+self.N)].T, np.matmul(grm, theta[self.M:(self.M+self.N)]))
-		return (((0.5*self.N - 0.5)*tau - ut_grm_u)/(tau ** 3))
-
-	# who is at risk when the jth individual has their event
-	# TODO actually do the work for the risk set
+	# for each non-censored person, who is at risk at that time
 	def R_j(self):
-		risk_set = np.memmap(path.join(self.temp, self.risk_set), dtype='float64', mode='r+', shape=(self.N,self.N))
-		times = np.memmap(path.join(self.temp, self.times), dtype='float64', mode='r', shape=(self.N,2))
-		if np.unique(times[:,0]).shape[0] > 1:
-			min_start = np.min(times[:,0])
-			late_start = np.where(times[:,0]!=min_start)[0]
+		if np.unique(self.times[:,0]).shape[0] > 1:
+			min_start = np.min(self.times[:,0])
+			late_start = np.where(self.times[:,0]!=min_start)[0]
 			for who in late_start:
-				start_time = times[who,0]
+				start_time = self.times[who,0]
 				for before in range(0,who):
-					if start_time <= times[before,0]:
-						risk_set[0:before,who] = 0
+					if start_time <= self.times[before,0]:
+						self.risk_set[0:before,who] = 0
 						break
-		
+
 		# fixing duplicated stopping times
-		unq, count = np.unique(times[:,1], return_counts=True)
+		unq, count = np.unique(self.times[:,1], return_counts=True)
 		dups = np.where(count>1)[0]
 		if dups.shape[0] > 0:
 			for stop_time in unq[dups]:
-				same_time = np.where(times[:,1]==stop_time)
+				same_time = np.where(self.times[:,1]==stop_time)
 				min_pos = np.min(same_time)
 				max_pos = np.max(same_time)
 				# risk set is currently a
 				for who in same_time:
-					risk_set[min_pos:(max_pos+1),who] = 1
+					self.risk_set[min_pos:(max_pos+1),who] = 1
 
-		del risk_set
-
-	# l_1 as defined in equations 2 in COXself.MEG paper (mostly their notation)
+	# l_1 as defined in equations 2 in COXMEG paper (mostly their notation)
 	def l_1(self, tau):
-		# eta = Xb + Zu, theta =[beta, u]
-		exp_eta = np.memmap(path.join(self.temp, self.exp_eta), dtype='float64', mode='r+', shape=(self.N))
-		theta = np.memmap(path.join(self.temp, self.theta), dtype='float64', mode='r+', shape=(self.N+self.M))
+		# eta = Xb + Zu
+		# works even when no fixed effects, just become 0
 		if self.M > 0:
-			fixed = np.memmap(path.join(self.temp, self.fixed), dtype='float64', mode='r', shape=(self.N, self.M))
-			exp_eta[:] = np.exp(np.matmul(fixed, theta[0:self.M]) + theta[self.M:(self.M+self.N)])
-			del fixed
+			self.exp_eta = np.exp(np.matmul(self.fixed, self.theta[0:self.M]) + self.theta[self.M:(self.M+self.N)])
 		else:
-			exp_eta[:] = np.exp(theta)
-		
-		risk_set = np.memmap(path.join(self.temp, self.risk_set), dtype='float64', mode='r', shape=(self.N,self.N))
-		loc = np.memmap(path.join(self.temp, self.loc), dtype='int64', mode='r', shape=(self.uncensored))
-		risk_eta = np.multiply(risk_set[loc,:], exp_eta)
-		del risk_set
+			self.exp_eta = np.exp(self.theta)
 
-		result = np.sum(np.log(exp_eta[loc])) - np.sum(np.log(np.sum(risk_eta,axis=1)))
-		#result = np.sum(np.log(exp_eta[loc]) - np.log(np.sum(risk_eta,axis=1)))
-		del exp_eta, loc, risk_eta
+		risk_eta = np.multiply(self.risk_set[self.loc,:][0], self.exp_eta)
+		# NOTE: changing the order of tau division may impact likelihood precsion
+		self.grm_u = np.matmul(self.grm, self.theta[self.M:(self.M+self.N)])
+		one = np.sum(np.log(self.exp_eta[self.loc]))
+		two = np.sum(np.log(np.sum(risk_eta,axis=1)))
+		three = 1/(2*tau)*(np.matmul(self.theta[self.M:(self.M+self.N)].T, self.grm_u)) # + self.N*np.log(tau))
+		return (np.sum(np.log(self.exp_eta[self.loc])) - np.sum(np.log(np.sum(risk_eta,axis=1))) \
+				 - 0.5*(np.matmul(self.theta[self.M:(self.M+self.N)].T, self.grm_u))) #+ self.N*np.log(tau)))
 
-		grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='r', shape=(self.N,self.N))
-		grm_u = np.memmap(path.join(self.temp, self.grm_u), dtype='float64', mode='r+', shape=(self.N))
-		grm_u[:] = np.matmul(grm, theta[self.M:(self.M+self.N)])
-		del grm
 
-		result -= 1/(2*tau)*(np.matmul(theta[self.M:(self.M+self.N)].T, grm_u))
-		del theta, grm_u
-		return result
-
-	# l_2 as defined in Equation 3 in COXself.MEG paper (mostly their notation)
+	# l_2 as defined in Equation 3 in COXMEG paper (mostly their notation)
 	def l_1_deriv(self, tau):
-		risk_set = np.memmap(path.join(self.temp, self.risk_set), dtype='float64', mode='r', shape=(self.N,self.N))
-		exp_eta = np.memmap(path.join(self.temp, self.exp_eta), dtype='float64', mode='r+', shape=(self.N))
-
-		# W = diag(exp(eta)) but working with exp(eta) explicitly (exp_eta)
-		MTW = np.multiply(risk_set, exp_eta)
-		# A = diag(D) diag^-1(self.M^TW1)
-		events = np.memmap(path.join(self.temp, self.events), dtype='int64', mode='r', shape=(self.N))
-		A = np.multiply(events, 1/np.sum(MTW, axis=1))		
-		# NOTE: WB = WMA1 
-		WB = np.multiply(exp_eta, np.sum(np.multiply(risk_set.T, A), axis = 1))
-		# setting score function s with parts [one, two]
-		s = np.memmap(path.join(self.temp, self.s), dtype='float64', mode='r+', shape=(self.N+self.M))
-		# s[two] -- d - WMA1 - (Sigma^-1 gamma) / tau (save sigma^-1 gamma / tau for now)
-		s[self.M:(self.M+self.N)] = events - WB
-		del events
-
-		# H = WB - QQ^T = WB - WMA^2M^TW	
-		H = np.diag(WB) - np.matmul(np.multiply(np.multiply(exp_eta, risk_set.T), np.square(A)), MTW)
-		del risk_set, exp_eta, WB, MTW, A
-
+		# W = diag(exp(eta)) but working with exp(eta) explicitly (self.exp_eta)
+		self.MTW = np.multiply(self.risk_set, self.exp_eta)
+		# A = diag(D) diag^-1(M^TW1)
+		self.A = np.multiply(self.events, 1/np.sum(self.MTW, axis=1))
+		# B = diag(MA1)
+		self.B = np.sum(np.multiply(self.risk_set.T, self.A), axis = 1)
+		# H = WB - QQ^T = WB - WMA^2M^TW
+		# NOTE: WB = WMA1
+		self.WB = np.multiply(self.exp_eta, self.B)
+		self.H = np.diag(self.WB) - np.matmul(np.multiply(np.multiply(self.exp_eta, self.risk_set.T), np.square(self.A)), self.MTW)
 		# setting information matrix V with quadrants [[one, two], [three, four]]
 		#V[four] -- H + sigma^-1/tau: always exists since we're looking at random effect		 
-		V = np.memmap(path.join(self.temp, self.V), dtype='float64', mode='r+', shape=(self.N+self.M, self.N+self.M))
-		grm = np.memmap(path.join(self.temp, self.grm), dtype='float64', mode='r', shape=(self.N, self.N))
-		V[self.M:(self.M+self.N), self.M:(self.M+self.N)] = np.add(H, (grm/tau))
-		del grm
+		self.V[self.M:(self.M+self.N), self.M:(self.M+self.N)] = np.add(self.H, (self.grm/tau))
+		# setting score function s with parts [one, two]
+		# s[two] -- d - WMA1 - (Sigma^-1 gamma) / tau (save sigma^-1 gamma / tau for now)
+		self.s[self.M:(self.M+self.N)] = self.events - self.WB
 		# one, two, three only exist if there were fixed effect/covariates
 		if self.M > 0:
-			fixed = np.memmap(path.join(self.temp, self.fixed), dtype='float64', mode='r', shape=(self.N, self.M))
 			#V[two] -- X^TH
-			V[0:self.M, self.M:(self.M+self.N)] = np.matmul(fixed.T, H)
+			self.V[0:self.M, self.M:(self.M+self.N)] = np.matmul(self.fixed.T, self.H)
 			#V[one] -- X^THX = (V[two]X)
-			V[0:self.M, 0:self.M] = np.matmul(V[0:self.M, self.M:(self.M+self.N)], fixed)
+			self.V[0:self.M, 0:self.M] = np.matmul(self.V[0:self.M, self.M:(self.M+self.N)], self.fixed)
 			#V[three] -- HX = (X^TH)^T = V[two]^T
-			V[self.M:(self.M+self.N), 0:self.M] = V[0:self.M, self.M:(self.M+self.N)].T
+			self.V[self.M:(self.M+self.N), 0:self.M] = self.V[0:self.M, self.M:(self.M+self.N)].T
 			#s[one] -- X^T(d - WMA1)
-			s[0:self.M] = np.matmul(fixed.T, s[self.M:(self.M+self.N)])
-			del fixed
-		del H
-		# wait to do this in case, we need d - WMA1 if self.M > 0
-		grm_u = np.memmap(path.join(self.temp, self.grm_u), dtype='float64', mode='r', shape=(self.N))
-		s[self.M:(self.M+self.N)] = s[self.M:(self.M+self.N)] - grm_u/tau		
-		del V, s, grm_u
+			self.s[0:self.M] = np.matmul(self.fixed.T, self.s[self.M:(self.M+self.N)])
+		self.s[self.M:(self.M+self.N)] = self.s[self.M:(self.M+self.N)] - self.grm_u/tau
 
 	# treat l_2 as a marginal log-likelihood to get estimate for tau
 	def marg_loglike(self, tau):	
@@ -160,16 +127,10 @@ class COXPHMM(IO):
 			damp = 1
 			loglike = update_loglike
 			self.l_1_deriv(tau)
-			V = np.memmap(path.join(self.temp, self.V), dtype='float64', mode='r', shape=(self.N+self.M,self.N+self.M))
-			s = np.memmap(path.join(self.temp, self.s), dtype='float64', mode='r', shape=(self.N+self.M))
-			update = np.linalg.solve(V, s)
-			del V,s
-			theta = np.memmap(path.join(self.temp, self.theta), dtype='float64', mode='r+', shape=(self.N+self.M))
-
-			theta[self.M:(self.M+self.N)] = theta[self.M:(self.M+self.N)] + update[self.M:(self.M+self.N)]
+			self.update = np.linalg.solve(self.V, self.s)
+			self.theta[self.M:(self.M+self.N)] = self.theta[self.M:(self.M+self.N)] + self.update[self.M:(self.M+self.N)]	
 			if self.M > 0:
-				theta[0:self.M] = theta[0:self.M] + update[0:self.M]
-			del theta
+				self.theta[0:self.M] = self.theta[0:self.M] + self.update[0:self.M]
 
 			update_loglike = self.l_1(tau)
 			# TODO: add comments to describe
@@ -182,27 +143,20 @@ class COXPHMM(IO):
 					print("The optimization of PPL may not converge.")
 					diff_loglike = 0
 					break
-
-				update = damp*update
-				theta = np.memmap(path.join(self.temp, self.theta), dtype='float64', mode='r+', shape=(self.N+self.M))
-				theta[self.M:(self.M+self.N)] = theta[self.M:(self.M+self.N)] - update[self.M:(self.M+self.N)] 
+				self.update = damp*self.update
+				self.theta[self.M:(self.M+self.N)] = self.theta[self.M:(self.M+self.N)] - self.update[self.M:(self.M+self.N)]
 				if self.M > 0:
-					theta[0:self.M] = theta[0:self.M] - update[0:self.M]
-				del theta
-				
+					self.theta[0:self.M] = self.theta[0:self.M] - self.update[0:self.M]
 				update_loglike = self.l_1(tau)
 				diff_loglike = update_loglike - loglike
 
 			run += 1
-		
+
 		if run == max_runs:
 			print("The PPL ran for the maximum number of iterations (" + str(max_runs) + "). It probably didn't converge")
-			
-		V = np.memmap(path.join(self.temp, self.V), dtype='float64', mode='r', shape=(self.N+self.M,self.N+self.M))
-		_, log_det = np.linalg.slogdet(V)
-		
-		return (-1*(update_loglike - self.N*np.log(tau)/2 - log_det/2))
+
+		_, log_det = np.linalg.slogdet(self.V)
+		return -1*(update_loglike - self.N*np.log(tau)/2 - log_det/2)
 
 if __name__=="__main__":
-	COXPHMM()
-
+	COXMM()
