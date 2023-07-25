@@ -4,9 +4,8 @@ Email: Kodi_Taraszka@dfci.harvard.edu
 This is prelim code for cox proportional hazard mixed model components (CoxMM)
 '''
 
-#TODO: double check that left censoring and right censoring work correctly
+#TODO: double check that left censoring and work correctly
 #TODO: classier handling of output/write to file
-#TODO: offer a correction to the estimated tau
 
 import numpy as np
 import pandas as pd
@@ -34,21 +33,11 @@ class COXMM(IO):
 		self.R_j()
 		tau = 0.5
 		soln = pybobyqa.solve(self.marg_loglike, x0 = [tau], bounds = ([1e-4], [5]))
-		#print(str(soln.x[0]) + " +/- " + str(np.sqrt(1/self.second_deriv(soln.x[0]))))
-	def reset(self):
-		self.theta = np.zeros(self.N+self.M)
-		self.update = np.zeros(self.N+self.M)
-		self.exp_eta = np.zeros(self.N)
-		self.risk_set = np.tril(np.ones((self.N, self.N))).T
-		self.grm_u = np.zeros(self.N)
-		self.loc = np.where(self.events==1)
-		self.MTW = np.zeros((self.N, self.N))
-		self.WB = np.zeros(self.N)
-		self.A = np.identity(self.N)
-		self.H = np.identity(self.N)
-		self.s = np.zeros((self.M+self.N))
-		self.V = np.zeros((self.M+self.N, self.M+self.N))
-		self.R_j()
+		tau = soln.x[0]
+		se = np.sqrt(1/self.second_deriv(soln.x[0]))
+		print(str(soln.x[0]) + " +/- " + str(se))
+		output = open(self.output, 'w')
+		output.writelines(["Tau SE\n", str(tau) + " " + str(se) + "\n"])
 	
 	def second_deriv(self, tau):
 		ut_grm_u = np.matmul(self.theta[self.M:(self.M+self.N)].T, np.matmul(self.grm, self.theta[self.M:(self.M+self.N)]))
@@ -179,11 +168,7 @@ class COXMM(IO):
 
 		J = self.grm/tau - J + np.diag(self.WB)
 		_, log_det = np.linalg.slogdet(J)
-		print("Tau: " + str(tau))
-		print("Log-likelihood: " + str(self.N*np.log(tau) + log_det - 2*update_loglike))
-		#	self.reset()	
 		return self.N*np.log(tau) + log_det - 2*update_loglike
-		#update_loglike - 0.5*(self.N*np.log(tau) + log_det) 
 
 if __name__=="__main__":
 	COXMM()
