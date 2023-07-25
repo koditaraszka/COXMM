@@ -91,8 +91,6 @@ class IO():
 			help = 'path tab delim file containing fixed effects features. First row containing column names')
 		optional.add_argument('-o', '--output', dest = 'output', default = 'results.txt',
 			help = 'path to output file. Default = results.txt')
-		optional.add_argument('-t', '--temp', dest = 'temp', default = 'temp',
-			help = 'path to temp directory. Default = temp')
 
 		args = parser.parse_args()
 		if args.fixed is not None:
@@ -128,7 +126,7 @@ class IO():
 
 		events = events[(events.stop > events.start)]
 		if events.shape[0] != self.N:
-			print(str(orig - events.shape[0]) + " individuals dropped because start time is after end time")
+			print(str(self.N - events.shape[0]) + " individuals dropped because start time is after end time")
 			self.N = events.shape[0]
 
 		events = events.sort_values("stop", ascending=True).reset_index(drop=True)

@@ -34,10 +34,13 @@ class COXMM(IO):
 		tau = 0.5
 		soln = pybobyqa.solve(self.marg_loglike, x0 = [tau], bounds = ([1e-4], [5]))
 		tau = soln.x[0]
-		se = np.sqrt(1/self.second_deriv(soln.x[0]))
-		print(str(soln.x[0]) + " +/- " + str(se))
+		se = np.sqrt(1/self.second_deriv(tau))
+		tau2 = 2*tau/(1+tau)
+		se2 = np.sqrt(1/self.second_deriv(tau2))
 		output = open(self.output, 'w')
-		output.writelines(["Tau SE\n", str(tau) + " " + str(se) + "\n"])
+		output.writelines(["Transform Tau SE\n", 
+					"None " + str(tau) + " " + str(se) + "\n", 
+					"2*tau/(1+tau) " + str(tau2) + " " + str(se2) + "\n"])
 	
 	def second_deriv(self, tau):
 		ut_grm_u = np.matmul(self.theta[self.M:(self.M+self.N)].T, np.matmul(self.grm, self.theta[self.M:(self.M+self.N)]))
