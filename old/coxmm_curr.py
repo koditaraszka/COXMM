@@ -5,13 +5,15 @@ This is prelim code for cox proportional hazard mixed model components (CoxMM)
 '''
 
 #TODO: double check that left censoring and right censoring work correctly
+#TODO: implement Breslow tie breaker, now we add noise to them :(
 #TODO: classier handling of output/write to file
+#TODO: estimate standard error of tau
 #TODO: offer a correction to the estimated tau
 
 import numpy as np
 import pandas as pd
 import pybobyqa
-from scipy.optimize import brent
+from scipy.optimize import minimize
 from input import IO
 
 class COXMM(IO):
@@ -25,6 +27,7 @@ class COXMM(IO):
 		self.risk_set = np.tril(np.ones((self.N, self.N))).T
 		self.grm_u = np.zeros(self.N)
 		self.loc = np.where(self.events==1)
+		self.ONE = np.ones(self.N)
 		self.MTW = np.zeros((self.N, self.N))
 		self.WB = np.zeros(self.N)
 		self.A = np.identity(self.N)
@@ -34,22 +37,12 @@ class COXMM(IO):
 		self.R_j()
 		tau = 0.5
 		soln = pybobyqa.solve(self.marg_loglike, x0 = [tau], bounds = ([1e-4], [5]))
-		#print(str(soln.x[0]) + " +/- " + str(np.sqrt(1/self.second_deriv(soln.x[0]))))
-	def reset(self):
-		self.theta = np.zeros(self.N+self.M)
-		self.update = np.zeros(self.N+self.M)
-		self.exp_eta = np.zeros(self.N)
-		self.risk_set = np.tril(np.ones((self.N, self.N))).T
-		self.grm_u = np.zeros(self.N)
-		self.loc = np.where(self.events==1)
-		self.MTW = np.zeros((self.N, self.N))
-		self.WB = np.zeros(self.N)
-		self.A = np.identity(self.N)
-		self.H = np.identity(self.N)
-		self.s = np.zeros((self.M+self.N))
-		self.V = np.zeros((self.M+self.N, self.M+self.N))
-		self.R_j()
-	
+		print("H2: " + str(soln.x[0]) + " +/- " + str(np.sqrt(1/self.second_deriv(soln.x[0]))))
+		print("Betas: " + str(self.theta[0:self.M]))
+		self.marg_loglike(0.2360726)
+		print("Betas: " + str(self.theta[0:self.M]))
+
+
 	def second_deriv(self, tau):
 		ut_grm_u = np.matmul(self.theta[self.M:(self.M+self.N)].T, np.matmul(self.grm, self.theta[self.M:(self.M+self.N)]))
 		return (((0.5*self.N - 0.5)*tau - ut_grm_u)/(tau ** 3))
@@ -89,7 +82,7 @@ class COXMM(IO):
 		result = np.sum(np.log(self.exp_eta[self.loc])) - np.sum(np.log(np.sum(risk_eta,axis=1)))
 		
 		self.grm_u = np.matmul(self.grm, self.theta[self.M:(self.M+self.N)])
-		result -= 1/(2*tau)*(np.matmul(self.theta[self.M:(self.M+self.N)].T, self.grm_u)) 
+		result -= 1/(2*tau)*(np.matmul(self.theta[self.M:(self.M+self.N)].T, self.grm_u)) # + self.N*np.log(tau))
 		return result
 
 	# l_2 as defined in Equation 3 in COXMEG paper (mostly their notation)
@@ -106,26 +99,64 @@ class COXMM(IO):
 		self.s[self.M:(self.M+self.N)] = self.events - self.WB
 
 		# H = WB - QQ^T = WB - WMA^2M^TW
+
+		#TODO: there's definitely a doubling of functions, figure this out!!
+		##print('two')
+		##print(two)
+		#exit()
+
+
+
 		self.H = np.matmul(np.multiply(np.multiply(self.exp_eta, self.risk_set.T), np.square(self.A)), self.MTW)
+		#print('exp(eta)')
+		#print(self.exp_eta[0:3])
+		#print(self.exp_eta[self.M:(self.M+3)])
+		#print('WB')
+		#print(self.WB.shape)
+		#print(self.WB[0:3])
+		#print('H')
+		H = np.diag(self.WB) - self.H
+		#print(H.shape)
+		#print(H[0:3,0:3])
+		#print('Hx')
+		#Hx = np.dot(self.fixed.T, H)
+		#print(Hx.shape)
+		#print(Hx[0:3,0:3])
 	
 		#V[four] -- H + sigma^-1/tau: always exists since we're looking at random effect		 
 		self.V[self.M:(self.M+self.N), self.M:(self.M+self.N)] = np.add((np.diag(self.WB) - self.H), (self.grm/tau))
+		#print('V[quad four]')
+		#print(self.V[self.M:(self.M+3), self.M:(self.M+3)])
 		# setting information matrix V with quadrants [[one, two], [three, four]]
 		# one, two, three only exist if there were fixed effect/covariates
 		if self.M > 0:
+			one = np.multiply(self.fixed.T, self.exp_eta)
+			Hx = np.matmul(np.multiply(np.dot(self.risk_set, np.multiply(self.fixed.T, self.exp_eta).T).T, np.square(self.A)), self.MTW)
 			#V[two] -- X^TH
-			self.V[0:self.M, self.M:(self.M+self.N)] = np.multiply(self.fixed.T, self.WB) - np.matmul(np.multiply(np.dot(self.risk_set, np.multiply(self.fixed.T, self.exp_eta).T).T, np.square(self.A)), self.MTW)
+			#print('WBtX')
+			#print(np.multiply(self.fixed.T, self.WB)[0:3,0:3])
+			self.V[0:self.M, self.M:(self.M+self.N)] = np.multiply(self.fixed.T, self.WB) - Hx
+
+			#print("V[quad two]")
+			#print(self.V[0:3, self.M:(self.M+3)]) 
 			#V[one] -- X^THX = (V[two]X)
 			self.V[0:self.M, 0:self.M] = np.matmul(self.V[0:self.M, self.M:(self.M+self.N)], self.fixed)
+			#print("V[quad one]")
+			#print(self.V[0:3, 0:3])
 			#V[three] -- HX = (X^TH)^T = V[two]^T
 			self.V[self.M:(self.M+self.N), 0:self.M] = self.V[0:self.M, self.M:(self.M+self.N)].T
+			#print('V[quad three]')
+			#print(self.V[self.M:(self.M+3), 0:3])
 			#s[one] -- X^T(d - WMA1)
 			self.s[0:self.M] = np.matmul(self.fixed.T, self.s[self.M:(self.M+self.N)])
-		#update s[two] after setting s[one]
+			#print('s[one]')
+			#print(self.s[0:3])
 		self.s[self.M:(self.M+self.N)] = self.s[self.M:(self.M+self.N)] - self.grm_u/tau
+		#print('s[two]')
+		#print(self.s[self.M:(self.M+3)])
 	
 	# treat l_2 as a marginal log-likelihood to get estimate for tau
-	def marg_loglike(self, tau, final=False):	
+	def marg_loglike(self, tau):	
 		# initialize	
 		eps = 1e-6
 		run = 0
@@ -151,7 +182,7 @@ class COXMM(IO):
 			while diff_loglike < -eps_s:
 				damp = damp/2
 				if damp < 1e-2:
-					print("The optimization of PPL may not converge.")
+					#print("The optimization of PPL may not converge.")
 					diff_loglike = 0
 					break
 				self.update = damp*self.update
@@ -166,24 +197,8 @@ class COXMM(IO):
 		if run == max_runs:
 			print("The PPL ran for the maximum number of iterations (" + str(max_runs) + "). It probably didn't converge")
 
-		A = np.cumsum(np.multiply(self.A[self.loc], self.A[self.loc]))
-		whoStarts = np.zeros(self.N)
-		whoStarts [self.loc] = 1	
-		whoStarts = np.cumsum(whoStarts) - 1 
-		J = np.zeros((self.N, self.N))
-		for i in range(0,self.N):
-			for j in range(i, self.N):
-				starter = int(min(whoStarts[i], whoStarts[j]))
-				J[i,j] = self.exp_eta[i]*self.exp_eta[j]*A[starter]
-				J[j,i] = J[i,j]
-
-		J = self.grm/tau - J + np.diag(self.WB)
-		_, log_det = np.linalg.slogdet(J)
-		print("Tau: " + str(tau))
-		print("Log-likelihood: " + str(self.N*np.log(tau) + log_det - 2*update_loglike))
-		#	self.reset()	
-		return self.N*np.log(tau) + log_det - 2*update_loglike
-		#update_loglike - 0.5*(self.N*np.log(tau) + log_det) 
+		_, log_det = np.linalg.slogdet(self.V)
+		return -1*(update_loglike - self.N*np.log(tau)/2 - log_det/2)
 
 if __name__=="__main__":
 	COXMM()
