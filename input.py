@@ -8,7 +8,8 @@ import numpy as np
 import argparse
 import pandas as pd
 import os.path as path
-
+import random
+import math
 
 # TODO: handle missing data, assumes data preprocessed
 # TODO: allow multiple GRMs
@@ -32,7 +33,25 @@ class IO():
 	def setup(self):
 		args = self.def_parser()
 		self.output = args.output
-		self.events = self.process_events(args.sample_id, args.events, args.grm_names)
+		grm_names = pd.read_csv(args.grm_names, header = 0)
+		print('grm names:')
+		print(grm_names.head)
+		self.grmN = grm_names.shape[0]
+		keep = None
+		if args.jackknife[0] is not None:
+			print('jackknife arguments: ' + str(args.jackknife))
+			random.seed(args.seed)			
+			print('seed: ' + str(args.seed))
+			grm_names = grm_names.sample(frac=1).reset_index(drop=True)
+			print('shuffled grm names:')
+			print(grm_names.head)
+			name_split = np.array_split(grm_names, int(args.jackknife[0]))
+			if int(args.jackknife[1]) == 0:
+				raise ValueError("Jackknife splits need to be base 1, i.e. 1-10 for 10 splits not 0-9")
+			keep = name_split[(int(args.jackknife[1])-1)]
+			print('keep')
+			print(keep.head)
+		self.events = self.process_events(args.sample_id, args.events, args.grm_names, keep)
 		if len(args.grm) > 1:
 			print("Warning: Only reading in/working with the first GRM")
 
@@ -91,6 +110,10 @@ class IO():
 			help = 'path tab delim file containing fixed effects features. First row containing column names')
 		optional.add_argument('-o', '--output', dest = 'output', default = 'results.txt',
 			help = 'path to output file. Default = results.txt')
+		optional.add_argument('-j', '--jackknife', dest = 'jackknife', nargs='*',
+			help = 'perform one round of jackknife sampling. Needs two arguments: total number of splits and which split currently running (base 1). E.G. -j 10 1')
+		optional.add_argument('-d', '--seed', dest='seed', default=123, type=int,
+			help = 'random seed to be used with -j/--jackknife, to set split (use same over all splits. Default = 123')
 
 		args = parser.parse_args()
 		if args.fixed is not None:
@@ -105,9 +128,8 @@ class IO():
 
 		return(args)
 
-	def process_events(self, sample_id, file, names):
+	def process_events(self, sample_id, file, names, keep):
 		grm_names = pd.read_csv(names, header = 0)
-		self.grmN = grm_names.shape[0]
 		events = pd.read_csv(file, sep = '\t', header = 0)
 		
 		if events.shape[1] != 4:
@@ -115,13 +137,18 @@ class IO():
 		if sample_id is not None:
 			grm_names = grm_names.rename(columns = {sample_id:'sample_id'})
 			events = events.rename(columns = {sample_id:'sample_id'})
+			if keep is not None:
+				keep = keep.rename(columns = {sample_id:'sample_id'})
 
 		grm_names["rownum"] = grm_names.index
 		grm_names["real_id"] = grm_names.sample_id
-		grm_names = grm_names.set_index('sample_id')
+		if keep is not None:
+			grm_names = grm_names[grm_names.real_id.isin(keep.sample_id)]
 
+		grm_names = grm_names.set_index('sample_id')
 		events = events.set_index('sample_id')
 		events = pd.concat([grm_names, events], axis=1, join='inner')
+		
 		self.N = events.shape[0]
 
 		events = events[(events.stop > events.start)]
