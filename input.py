@@ -34,24 +34,17 @@ class IO():
 		args = self.def_parser()
 		self.output = args.output
 		grm_names = pd.read_csv(args.grm_names, header = 0)
-		print('grm names:')
-		print(grm_names.head)
 		self.grmN = grm_names.shape[0]
-		keep = None
-		if args.jackknife[0] is not None:
-			print('jackknife arguments: ' + str(args.jackknife))
+		drop = None
+		if args.jackknife is not None:
 			random.seed(args.seed)			
-			print('seed: ' + str(args.seed))
 			grm_names = grm_names.sample(frac=1).reset_index(drop=True)
-			print('shuffled grm names:')
-			print(grm_names.head)
 			name_split = np.array_split(grm_names, int(args.jackknife[0]))
 			if int(args.jackknife[1]) == 0:
 				raise ValueError("Jackknife splits need to be base 1, i.e. 1-10 for 10 splits not 0-9")
-			keep = name_split[(int(args.jackknife[1])-1)]
-			print('keep')
-			print(keep.head)
-		self.events = self.process_events(args.sample_id, args.events, args.grm_names, keep)
+			drop = name_split[(int(args.jackknife[1])-1)]
+		
+		self.events = self.process_events(args.sample_id, args.events, args.grm_names, drop)
 		if len(args.grm) > 1:
 			print("Warning: Only reading in/working with the first GRM")
 
@@ -128,7 +121,7 @@ class IO():
 
 		return(args)
 
-	def process_events(self, sample_id, file, names, keep):
+	def process_events(self, sample_id, file, names, drop):
 		grm_names = pd.read_csv(names, header = 0)
 		events = pd.read_csv(file, sep = '\t', header = 0)
 		
@@ -137,13 +130,13 @@ class IO():
 		if sample_id is not None:
 			grm_names = grm_names.rename(columns = {sample_id:'sample_id'})
 			events = events.rename(columns = {sample_id:'sample_id'})
-			if keep is not None:
-				keep = keep.rename(columns = {sample_id:'sample_id'})
+			if drop is not None:
+				drop = drop.rename(columns = {sample_id:'sample_id'})
 
 		grm_names["rownum"] = grm_names.index
 		grm_names["real_id"] = grm_names.sample_id
-		if keep is not None:
-			grm_names = grm_names[grm_names.real_id.isin(keep.sample_id)]
+		if drop is not None:
+			grm_names = grm_names[~grm_names.real_id.isin(drop.sample_id)]
 
 		grm_names = grm_names.set_index('sample_id')
 		events = events.set_index('sample_id')
