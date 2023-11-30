@@ -25,14 +25,18 @@ class IO():
 		self.grm = None
 		self.fixed = None
 		self.events = None
+		self.plink = None
+		self.tau = None
 		self.setup()
 		self.times = self.events[['start', 'stop']].to_numpy()
 		self.events = self.events.event.to_numpy()
-
+		
 	# this function calls the parser and processes the input
 	def setup(self):
 		args = self.def_parser()
 		self.output = args.output
+		self.tau = args.gwas
+		self.plink = args.plink
 		grm_names = pd.read_csv(args.grm_names, header = 0)
 		self.grmN = grm_names.shape[0]
 		drop = None
@@ -92,7 +96,7 @@ class IO():
 		required = parser.add_argument_group('Required Arguments')
 		required.add_argument('-e', '--events', required = True,
 			help = 'path to outcome file which contains four columns: sample_id, start, stop, event with sample_id changeable by argument -s/--sample_id')
-		required.add_argument('-g', '--grm', dest = 'grm', nargs='*',
+		required.add_argument('-g', '--grm', dest = 'grm', nargs = '*',
 			help = 'path to tab delim files containing precomputed relatedness matrices. There is no header row in any file nor is there a column for sample ids.')
 		required.add_argument('-n', '--grm_names', dest = 'grm_names',
 			help = 'path to file containing one column of names/sample_ids with grm sample order. There is a header row which makes the sample_id in the events file.')
@@ -103,12 +107,17 @@ class IO():
 			help = 'path tab delim file containing fixed effects features. First row containing column names')
 		optional.add_argument('-o', '--output', dest = 'output', default = 'results.txt',
 			help = 'path to output file. Default = results.txt')
-		optional.add_argument('-j', '--jackknife', dest = 'jackknife', nargs='*',
+		optional.add_argument('-j', '--jackknife', dest = 'jackknife', nargs = '*',
 			help = 'perform one round of jackknife sampling. Needs two arguments: total number of splits and which split currently running (base 1). E.G. -j 10 1')
-		optional.add_argument('-d', '--seed', dest='seed', default=123, type=int,
+		optional.add_argument('-d', '--seed', dest = 'seed', default = 123, type = int,
 			help = 'random seed to be used with -j/--jackknife, to set split (use same over all splits. Default = 123')
+		optional.add_argument('-w', '--gwas', dest = 'gwas', type = float,
+			help = 'run GWAS with the heritabilty estimate provided with this argument and used alongside -p/--plink')
+		optional.add_argument('-p', '--plink', dest = 'plink',
+			help = 'path to prefix for plink bim/bed/fam files and used alongside -w/--gwas')
 
 		args = parser.parse_args()
+		# basic checks on input
 		if args.fixed is not None:
 			if not path.isfile(args.fixed):
 				raise ValueError("The fixed effect file does not exist")
@@ -119,7 +128,21 @@ class IO():
 		if not path.isfile(args.grm[0]):
 			raise ValueError("The grm file does not exist")
 
+		if args.gwas is not None and args.plink is None:
+			raise ValueError("GWAS indicated but plink files not included")
+
+		if args.gwas is None and args.plink is not None:
+			raise ValueError("Plink path included but GWAS was not indicated/heritabilty estimate not provided")
+
+		if args.plink is not None and not path.isfile(args.plink):
+			raise ValueError("The plink file does not exist")
+
+		if args.gwas is not None:
+			if args.gwas > 1 or args.gwas < 0:
+				print("The heritability estimate provided was not between [0, 1] which is unexpected")
+		
 		return(args)
+
 
 	def process_events(self, sample_id, file, names, drop):
 		grm_names = pd.read_csv(names, header = 0)
@@ -127,6 +150,7 @@ class IO():
 		
 		if events.shape[1] != 4:
 			raise ValueError("There should be four columns in the events/outcome file")
+		
 		if sample_id is not None:
 			grm_names = grm_names.rename(columns = {sample_id:'sample_id'})
 			events = events.rename(columns = {sample_id:'sample_id'})

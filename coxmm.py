@@ -10,7 +10,7 @@ This is prelim code for cox proportional hazard mixed model components (CoxMM)
 import numpy as np
 import pandas as pd
 import pybobyqa
-from scipy.optimize import brent
+import pandas_plink as plink
 from input import IO
 
 class COXMM(IO):
@@ -32,19 +32,35 @@ class COXMM(IO):
 		self.V = np.zeros((self.M+self.N, self.M+self.N))
 		self.R_j()
 		tau = 0.5
-		soln = pybobyqa.solve(self.marg_loglike, x0 = [tau], bounds = ([1e-4], [5]))
-		tau = soln.x[0]
-		se = np.sqrt(1/self.second_deriv(tau))
-		tau2 = 2*tau/(1+tau)
-		se2 = np.sqrt(1/self.second_deriv(tau2))
-		output = open(self.output, 'w')
-		output.writelines(["Transform Tau SE N Cases\n" 
-				"None " + str(tau) + " " + str(se) + " " + str(self.N) + " " + str(self.loc[0].shape[0]) + "\n", 
-				"2*tau/(1+tau) " + str(tau2) + " " + str(se2) + " " + str(self.N) + " " + str(self.loc[0].shape[0]) + "\n"])
-	
-	def second_deriv(self, tau):
-		ut_grm_u = np.matmul(self.theta[self.M:(self.M+self.N)].T, np.matmul(self.grm, self.theta[self.M:(self.M+self.N)]))
-		return (((0.5*self.N - 0.5)*tau - ut_grm_u)/(tau ** 3))
+		
+		if self.tau is None:
+			soln = pybobyqa.solve(self.marg_loglike, x0 = [tau], bounds = ([1e-4], [5]))
+			tau = soln.x[0]
+			#se = np.sqrt(1/self.second_deriv(tau))
+			output = open(self.output, 'w')
+			#report the untransformed heritability estimate, but work indicates 2*tau/(1+tau) to be the right correction
+			output.writelines(["Tau SE N Cases\n", 
+				str(tau) + " " + str(self.N) + " " + str(self.loc[0].shape[0]) + "\n"])
+
+			print("Untransformed heritability estimate: " + str(tau))
+			print("Transformed estimate: " + str(2*tau/(1+tau)))
+			print("The sample size is " + str(self.N))
+			print("The number of cases is " + str(self.loc[0].shape[0]))  	
+			print("Covariate effect sizes and std errors:")
+			V = np.linalg.inv(self.V)
+			for var in range(0,self.M):
+				print("Beta: " + str(self.theta[var]) + " SE: " + str(np.sqrt(V[var,var])))
+		else:
+			(bim, fam, bed) = plink.read_plink(self.plink, verbose=False)
+			print(bim.shape())
+			print(fam.shape())
+			print(bed.shape())
+
+
+	# this method doesn't work and gives an underestimate for the standard error
+	#def second_deriv(self, tau):
+	#	ut_grm_u = np.matmul(self.theta[self.M:(self.M+self.N)].T, np.matmul(self.grm, self.theta[self.M:(self.M+self.N)]))
+	#	return (((0.5*self.N - 0.5)*tau - ut_grm_u)/(tau ** 3))
 
 	# who is at risk when the jth individual has their event
 	def R_j(self):
