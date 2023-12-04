@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 import pybobyqa
 from scipy.stats import norm
-from pandas_plink import read_plink
 from input import IO
 
 class COXMM(IO):
@@ -32,8 +31,9 @@ class COXMM(IO):
 		self.s = np.zeros((self.M+self.N))
 		self.V = np.zeros((self.M+self.N, self.M+self.N))
 		self.R_j()
-		if self.gwas is None:
-			tau = 0.5
+		tau = 0.5
+		
+		if self.tau is None:
 			soln = pybobyqa.solve(self.marg_loglike, x0 = [tau], bounds = ([1e-4], [5]))
 			tau = soln.x[0]
 			#se = np.sqrt(1/self.second_deriv(tau))
@@ -50,55 +50,33 @@ class COXMM(IO):
 			V = np.linalg.inv(self.V)
 			for var in range(0,self.M):
 				print("Beta: " + str(self.theta[var]) + " SE: " + str(np.sqrt(V[var,var])))
-		else:
-			(bim, fam, bed) = read_plink(self.plink, verbose=False)
-			fam = fam.rename(columns = {'fid':'sample_id'})
-			fam = fam.set_index('sample_id')
-			fam.index = fam.index.astype('str')
-			fam = fam.reindex(index = self.names)
-			missing = fam[fam['iid'].isna()]
-			if missing.shape[0] > 0:
-				raise ValueError("There are phenotyped individuals who are not genotyped")
-			self.results = bim[['snp', 'chrom', 'pos', 'a0', 'a1']].copy()
-			self.results["maf"] = np.nan
-			self.results["geno"] = np.nan
-			self.results["n"] = np.nan
-			self.results["beta"] = np.nan
-			self.results["se"] = np.nan
-			self.results["pval"] = np.nan
+		else:	
 			origGRM = self.grm.copy()
 			if self.fixed is not None:
 				origFixed = self.fixed.copy()
 			origEvents = self.events.copy()
 			origTimes = self.times.copy()
 			origN = self.N
-			for index in range(0, bed.shape[0]):
+			for index, row in bim.iterrows():
 				self.fixed = origFixed.copy()
-				self.grm = origGRM.copy()
-				self.events = origEvents.copy()
-				self.times = origTimes.copy()
 				self.N = origN
-				snp = np.asarray(bed[index,])
-				self.fixed[:,0] = snp[fam.i.to_numpy()]
-				missing = np.argwhere(np.isnan(self.fixed[:,0])).flatten()
+				snp = np.asarray(bed[index,:])
+				snp = snp[fam.i.to_numpy()]
+				self.fixed[:, 0] = snp
+				missing = np.argwhere(np.isnan(snp)).flatten()
 				if missing.shape[0] > 0:
+					continue
 					geno = missing.shape[0]/self.N
 					self.fixed = np.delete(self.fixed, missing, axis=0)
 					self.grm = np.delete(origGRM, missing, axis=0)
 					self.grm = np.delete(self.grm, missing, axis=1)
 					self.events = np.delete(origEvents, missing)
 					self.times = np.delete(origTimes, missing, axis=0)
-					#df = pd.DataFrame(self.fixed)
-					#df.to_csv("ordered_covariates.txt", sep = ' ', index=False)
-					#df = pd.DataFrame(self.events)
-					#df.to_csv("ordered_events.txt", sep = ' ', index=False)
-					#df = pd.DataFrame(self.times)
-					#df.to_csv("ordered_times.txt", sep = ' ', index=False)
-					#df = pd.DataFrame(self.grm)
-					#df.to_csv("ordered_grm.txt", sep = ' ', index = False)
-					#exit()
 				else:
-					geno = 0
+					geno = 0.0
+					self.grm = origGRM.copy()
+					self.events = origEvents.copy()
+					self.times = origTimes.copy()
 
 				mean = np.mean(self.fixed[:, 0])
 				if (mean / 2 > 0.5):
@@ -106,24 +84,41 @@ class COXMM(IO):
 					self.fixed[:,0][self.fixed[:,0] == 2] = 0
 					self.fixed[:,0][self.fixed[:,0] == 3] = 2
 					mean = np.mean(self.fixed[:, 0])
-					a1 = self.results.loc[index, "a1"]
-					self.results.loc[index, "a1"] = self.results.loc[index, "a0"]
-					self.results.loc[index, "a0"] = a1
-				
-				stderr = np.std(self.fixed[:, 0])
-				self.reset()
-				if self.center:
-					self.fixed[:,0] = (self.fixed[:,0] - mean)/stderr
-				likelihood = self.marg_loglike(0.401)
+					a1 = results.loc[index, "a1"]
+					results.loc[index, "a1"] = results.loc[index, "a0"]
+					results.loc[index, "a0"] = a1
+
+				#stderr = np.std(self.fixed[:, 0])
+				#self.fixed[:,0] = (self.fixed[:,0] - mean)/stderr
+				#self.N = self.grm.shape[0]
+				#self.theta = np.zeros(self.N+self.M)
+				#self.update = np.zeros(self.N+self.M)
+				#self.exp_eta = np.zeros(self.N)
+				#self.risk_set = np.tril(np.ones((self.N, self.N))).T
+				#self.grm_u = np.zeros(self.N)
+				#self.loc = np.where(self.events==1)
+				#self.MTW = np.zeros((self.N, self.N))
+				#self.WB = np.zeros(self.N)
+				#self.A = np.identity(self.N)
+				#self.H = np.identity(self.N)
+				#self.s = np.zeros((self.M+self.N))
+				#self.V = np.zeros((self.M+self.N, self.M+self.N))
+				#self.R_j()
+				fixed = pd.DataFrame(self.fixed)
+				fixed.to_csv("snp.txt", index=False, sep=' ')
+				names = pd.DataFrame(self.names)
+				names.to_csv("fam_info.txt", index=True, sep=' ')
+				exit()
+				likelihood = self.marg_loglike(self.tau)
 				V = np.linalg.inv(self.V)
-				self.results.loc[index, "maf"] = round(mean/2,3)
-				self.results.loc[index, "geno"] = round(geno,3)
-				self.results.loc[index, "n"] = self.N
-				self.results.loc[index, "beta"] = self.theta[0]
-				self.results.loc[index, "se"] = np.sqrt(V[0,0])
-				self.results.loc[index, "pval"] = norm.sf(abs(self.theta[0]/np.sqrt(V[0,0])))*2
-	
-			self.results.to_csv(self.output, index=False, sep=' ')
+				results.loc[index, "maf"] = round(mean/2,3)
+				results.loc[index, "geno"] = round(geno,3)
+				results.loc[index, "n"] = int(self.N)
+				results.loc[index, "beta"] = self.theta[0]
+				results.loc[index, "se"] = V[0,0]
+				results.loc[index, "pval"] = norm.sf(abs(self.theta[0]/V[0,0]))*2
+			
+			results.to_csv(self.output, index=False, sep=' ')
 
 	# this method doesn't work and gives an underestimate for the standard error
 	#def second_deriv(self, tau):
@@ -131,23 +126,6 @@ class COXMM(IO):
 	#	return (((0.5*self.N - 0.5)*tau - ut_grm_u)/(tau ** 3))
 
 	# who is at risk when the jth individual has their event
-	def reset(self):
-		self.N = self.grm.shape[0]
-		self.theta = np.zeros(self.N+self.M)
-		self.update = np.zeros(self.N+self.M)
-		self.exp_eta = np.zeros(self.N)
-		self.risk_set = np.tril(np.ones((self.N, self.N))).T
-		self.grm_u = np.zeros(self.N)
-		self.loc = np.where(self.events==1)
-		self.MTW = np.zeros((self.N, self.N))
-		self.WB = np.zeros(self.N)
-		self.A = np.identity(self.N)
-		self.H = np.identity(self.N)
-		self.s = np.zeros((self.M+self.N))
-		self.V = np.zeros((self.M+self.N, self.M+self.N))
-		self.R_j()
-
-
 	def R_j(self):
 		if np.unique(self.times[:,0]).shape[0] > 1:
 			min_start = np.min(self.times[:,0])
@@ -218,7 +196,7 @@ class COXMM(IO):
 		self.s[self.M:(self.M+self.N)] = self.s[self.M:(self.M+self.N)] - self.grm_u/tau
 	
 	# treat l_2 as a marginal log-likelihood to get estimate for tau
-	def marg_loglike(self, tau):	
+	def marg_loglike(self, tau, final=False):	
 		# initialize	
 		eps = 1e-6
 		run = 0

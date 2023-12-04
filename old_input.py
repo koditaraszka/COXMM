@@ -8,11 +8,10 @@ import numpy as np
 import argparse
 import pandas as pd
 import os.path as path
-from pandas_plink import read_plink
 import random
 import math
 
-# TODO: handle missing data in fixed effects/outcome, assumes data preprocessed
+# TODO: handle missing data, assumes data preprocessed
 # TODO: allow multiple GRMs
 
 # This class handles all input/output functions
@@ -28,21 +27,18 @@ class IO():
 		self.fixed = None
 		self.events = None
 		self.plink = None
-		self.results = None
-		self.gwas = None
-		self.center = False
-		self.names = None
+		self.tau = None
 		self.setup()
 		self.times = self.events[['start', 'stop']].to_numpy()
-		self.names = self.events.index.astype('str')
+		if self.plink is not None:
+			self.names = self.events.index.astype('str')
 		self.events = self.events.event.to_numpy()
 		
 	# this function calls the parser and processes the input
 	def setup(self):
 		args = self.def_parser()
-		self.center = args.center
 		self.output = args.output
-		self.gwas = args.gwas
+		self.tau = args.gwas
 		self.plink = args.plink
 		grm_names = pd.read_csv(args.grm_names, header = 0)
 		self.grmN = grm_names.shape[0]
@@ -93,8 +89,8 @@ class IO():
 						print("mean: " + str(self.fixed[col].mean()) + " var: " + str(self.fixed[col].var()))
 
 			self.fixed = self.fixed.reindex(index = self.events.index)
-			#if self.plink is not None:
-			#	self.fixed.insert(0,'SNP',np.nan)
+			if self.plink is not None:
+				self.fixed.insert(0,'SNP',np.nan)
 			self.fixed = self.fixed.to_numpy()
 			self.M = self.fixed.shape[1]
 
@@ -124,9 +120,7 @@ class IO():
 			help = 'run GWAS with the heritabilty estimate provided with this argument and used alongside -p/--plink')
 		optional.add_argument('-p', '--plink', dest = 'plink',
 			help = 'path to prefix for plink bim/bed/fam files and used alongside -w/--gwas')
-		optional.add_argument('-c', '--centerScale', dest = 'center', action = 'store_true', default = False,
-			help = 'indicate if GWAS SNPs should be centered and scaled')
-		
+
 		args = parser.parse_args()
 		# basic checks on input
 		if args.fixed is not None:
