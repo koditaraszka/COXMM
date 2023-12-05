@@ -93,8 +93,8 @@ class IO():
 						print("mean: " + str(self.fixed[col].mean()) + " var: " + str(self.fixed[col].var()))
 
 			self.fixed = self.fixed.reindex(index = self.events.index)
-			#if self.plink is not None:
-			#	self.fixed.insert(0,'SNP',np.nan)
+			if self.plink is not None:
+				self.fixed.insert(0,'SNP',np.nan)
 			self.fixed = self.fixed.to_numpy()
 			self.M = self.fixed.shape[1]
 

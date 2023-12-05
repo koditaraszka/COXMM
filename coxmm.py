@@ -72,6 +72,7 @@ class COXMM(IO):
 			origEvents = self.events.copy()
 			origTimes = self.times.copy()
 			origN = self.N
+			first = True
 			for index in range(0, bed.shape[0]):
 				self.fixed = origFixed.copy()
 				self.grm = origGRM.copy()
@@ -82,21 +83,15 @@ class COXMM(IO):
 				self.fixed[:,0] = snp[fam.i.to_numpy()]
 				missing = np.argwhere(np.isnan(self.fixed[:,0])).flatten()
 				if missing.shape[0] > 0:
+					if first:
+						print(self.results.loc[index, "snp"])
+						first=False
 					geno = missing.shape[0]/self.N
 					self.fixed = np.delete(self.fixed, missing, axis=0)
 					self.grm = np.delete(origGRM, missing, axis=0)
 					self.grm = np.delete(self.grm, missing, axis=1)
 					self.events = np.delete(origEvents, missing)
 					self.times = np.delete(origTimes, missing, axis=0)
-					#df = pd.DataFrame(self.fixed)
-					#df.to_csv("ordered_covariates.txt", sep = ' ', index=False)
-					#df = pd.DataFrame(self.events)
-					#df.to_csv("ordered_events.txt", sep = ' ', index=False)
-					#df = pd.DataFrame(self.times)
-					#df.to_csv("ordered_times.txt", sep = ' ', index=False)
-					#df = pd.DataFrame(self.grm)
-					#df.to_csv("ordered_grm.txt", sep = ' ', index = False)
-					#exit()
 				else:
 					geno = 0
 
