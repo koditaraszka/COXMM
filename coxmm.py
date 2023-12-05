@@ -109,7 +109,7 @@ class COXMM(IO):
 				self.reset()
 				if self.center:
 					self.fixed[:,0] = (self.fixed[:,0] - mean)/stderr
-				likelihood = self.marg_loglike(0.401)
+				likelihood = self.marg_loglike(self.gwas)
 				V = np.linalg.inv(self.V)
 				self.results.loc[index, "maf"] = round(mean/2,3)
 				self.results.loc[index, "geno"] = round(geno,3)
