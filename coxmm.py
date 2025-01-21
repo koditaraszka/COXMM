@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pybobyqa
 from scipy.stats import norm
-from pandas_plink import read_plink
+#from pandas_plink import read_plink
 from input import IO
 
 class COXMM(IO):
@@ -42,8 +42,7 @@ class COXMM(IO):
 			output.writelines(["Tau SE N Cases\n", 
 				str(tau) + " " + str(self.N) + " " + str(self.loc[0].shape[0]) + "\n"])
 
-			print("Untransformed heritability estimate: " + str(tau))
-			print("Transformed estimate: " + str(2*tau/(1+tau)))
+			print("Heritability estimate: " + str(tau))
 			print("The sample size is " + str(self.N))
 			print("The number of cases is " + str(self.loc[0].shape[0]))  	
 			print("Covariate effect sizes and std errors:")
@@ -72,8 +71,9 @@ class COXMM(IO):
 			origEvents = self.events.copy()
 			origTimes = self.times.copy()
 			origN = self.N
-			first = True
-			for index in range(0, bed.shape[0]):
+			for index in range(0, 4): #bed.shape[0]):
+				if index % 10:
+					print("Now at the " + str(index) + " SNP")
 				self.fixed = origFixed.copy()
 				self.grm = origGRM.copy()
 				self.events = origEvents.copy()
@@ -83,9 +83,6 @@ class COXMM(IO):
 				self.fixed[:,0] = snp[fam.i.to_numpy()]
 				missing = np.argwhere(np.isnan(self.fixed[:,0])).flatten()
 				if missing.shape[0] > 0:
-					if first:
-						print(self.results.loc[index, "snp"])
-						first=False
 					geno = missing.shape[0]/self.N
 					self.fixed = np.delete(self.fixed, missing, axis=0)
 					self.grm = np.delete(origGRM, missing, axis=0)
@@ -117,7 +114,8 @@ class COXMM(IO):
 				self.results.loc[index, "beta"] = self.theta[0]
 				self.results.loc[index, "se"] = np.sqrt(V[0,0])
 				self.results.loc[index, "pval"] = norm.sf(abs(self.theta[0]/np.sqrt(V[0,0])))*2
-	
+				#break	
+			#print(self.results.loc[index,])
 			self.results.to_csv(self.output, index=False, sep=' ')
 
 	# this method doesn't work and gives an underestimate for the standard error
