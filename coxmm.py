@@ -39,7 +39,7 @@ class COXMM(IO):
 			#se = np.sqrt(1/self.second_deriv(tau))
 			output = open(self.output, 'w')
 			#report the untransformed heritability estimate, but work indicates 2*tau/(1+tau) to be the right correction
-			output.writelines(["Tau SE N Cases\n", 
+			output.writelines(["Tau N Cases\n", 
 				str(tau) + " " + str(self.N) + " " + str(self.loc[0].shape[0]) + "\n"])
 
 			print("Heritability estimate: " + str(tau))
