@@ -36,11 +36,14 @@ class COXMM(IO):
 			tau = 0.5
 			soln = pybobyqa.solve(self.marg_loglike, x0 = [tau], bounds = ([1e-4], [5]))
 			tau = soln.x[0]
+			# dropped this definition of se due to being overly conservative
+			# instead us block jackknifing
 			#se = np.sqrt(1/self.second_deriv(tau))
+			her = tau/(tau + (math.pi*math.pi)/6)
 			output = open(self.output, 'w')
 			#report the untransformed heritability estimate, but work indicates tau/(tau + pi^2/6) to be the right correction
-			output.writelines(["Tau N Cases\n", 
-				str(tau) + " " + str(self.N) + " " + str(self.loc[0].shape[0]) + "\n"])
+			output.writelines(["sigma2g h2 N Cases\n", 
+				str(tau) + " " + str(her) + " " + str(self.N) + " " + str(self.loc[0].shape[0]) + "\n"])
 
 			print("Heritability estimate: " + str(tau))
 			print("The sample size is " + str(self.N))
