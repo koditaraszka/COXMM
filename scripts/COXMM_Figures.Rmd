@@ -1,0 +1,1198 @@
+---
+title: "COXMM Figures"
+author: "Kodi Taraszka"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(latex2exp)
+library(viridis)
+library(stringr)
+library(patchwork) 
+library(knitr)
+library(metafor)
+library(ggrepel)
+library(survival)
+library(survminer)
+# general figure set-up
+opts_chunk$set(dpi=300)
+#"COXMM (Interval)" = "darkred", 
+methods_colors = c("COXMM" = "#e41a1c", "Case-Control HE-Reg" = "#377eb8", "Age-of-Onset HE-Reg" = "#4daf4a")
+base1_methods_colors = c("COXMM" = "#e41a1c", "Case-Control\n HE-Reg" = "#377eb8", "Age-of-Onset\n HE-Reg" = "#4daf4a")
+alt_methods_colors = c("COXMM" = "#e41a1c", "Case-Control HE-Reg" = "#377eb8", "Case-Control HE-Reg (Population Prevalence)" = "skyblue3", "Case-Control HE-Reg (Sample Prevalence)" = "lightblue4", "Age-of-Onset HE-Reg" = "#4daf4a")
+new_methods_colors = c("COXMM" = "#e41a1c", "Case-Control HE-Reg" = "#377eb8")
+
+log_methods_colors = c("COXMM h2_log" = "#e41a1c", "COXMM sigma2_g" = "darkred", "Case-Control HE-Reg" = "#377eb8", "Age-of-Onset HE-Reg" = "#4daf4a")
+
+all_theme = theme_bw() + theme(strip.background = element_blank(), axis.text =element_text( size = 14, color = "black"), 
+          axis.title = element_text(size = 14, color = "black"), legend.text = element_text(size = 14, color = "black"), 
+          legend.title = element_text(size = 14, color = "black"), 
+          plot.title = element_text(hjust = 0.5, size=16, color="black"), 
+          strip.text = element_text(size = 14, color = "black"), 
+          plot.tag = element_text(size=18, color = "black", face = "bold"))
+```
+
+```{r process_sims, include = FALSE}
+# Simulations
+final_simulations_10k <- read.csv("~/Desktop/Heritability/sims/final_simulations_10k.txt", sep="")
+# dropping these, tried using environment as the only baseline hazard -- these were weird results
+final_simulations_10k = final_simulations_10k[which(final_simulations_10k$Variable!="EnvLiabBase"),]
+final_simulations_10k["H2_log"] = final_simulations_10k$Estimate
+final_simulations_10k[which(final_simulations_10k$Method=="TTE"), "H2_log"] = final_simulations_10k$Estimate[which(final_simulations_10k$Method=="TTE")]/(final_simulations_10k$Estimate[which(final_simulations_10k$Method=="TTE")] + pi^2/6) 
+
+
+results = final_simulations_10k %>% group_by(Framework, Variable, Parameter, Method, H2, K) %>% 
+  reframe(Her=mean(Estimate, na.rm=T), SE=sd(Estimate, na.rm=T)/sqrt(50), 
+          Her_log=mean(H2_log, na.rm=T), SE_log=sd(H2_log, na.rm=T)/sqrt(50),
+          meanCases=mean(Cases,na.rm=T), sdCases=sd(Cases,na.rm=T))
+          
+results[which(results$Method=="Age"),"Method"] = "Age-of-Onset HE-Reg"
+results[which(results$Method=="CC"),"Method"] = "Case-Control HE-Reg"
+results[which(results$Method=="TTE"),"Method"] = "COXMM"
+results$K = results$K/100
+results$H2 = results$H2/100
+
+# these results are also odd -- may be added to the supplement?
+#k95 = results[which(results$K==0.95),]
+
+# these results are good, but repeated in the main paper essentially
+# prop cases ~ 0.06 and the censoring is by exponential distribution
+#k20 = results[which(results$K==20),]
+
+# dropping these for now, K=0.1 is just too many data points
+results = results[-which(results$K %in% c(0.1, 0.95, 20)),]
+
+# these results are alt censoring -- censoring using exponential distribution
+cen_results = results[which(results$Variable=="Cen" & (results$K==0.5 | results$K==0.35)),]
+cen_results$K = paste("Proportion of Events/Cases:", cen_results$K)
+cen_results$K[which(cen_results$K=="Proportion of Events/Cases: 0.35")] = "Proportion of Events/Cases: 0.72"
+cen_results$K[which(cen_results$K=="Proportion of Events/Cases: 0.5")] = "Proportion of Events/Cases: 0.65"
+
+results$K = paste("Proportion of Events/Cases:", results$K)
+
+# Liability threshold model -- true generative model for case-control traits
+ltm_results = results[which(results$Variable=="LTM"),]
+
+# effect is genetic liability and fixed effects with 1% or 50% variance
+fixed_results = results[which(results$Variable %in% c("Fixed1", "Fixed50")),]
+
+results = results[-which(results$Variable %in% c("LTM", "Cen", "Fixed1", "Fixed50")),]
+base1_results = results[which(results$Variable=="Base" & results$Parameter==1 & results$K!='Proportion of Events/Cases: 0.01'),]
+base3_results = results[which(results$Variable=="Base" & results$Parameter==3),]
+env1_results = results[which(results$Variable=="Env" & results$Parameter==1),]
+
+base1_results = subset(base1_results, select=-c(Framework, Variable, Parameter, meanCases, sdCases))
+colnames(base1_results)[1:5] = c("Method", "True Heritability", "K", "Estimated Heritability", "SE")
+base1_results[which(base1_results$Method=="Age-of-Onset HE-Reg"), "Method"] = "Age-of-Onset\n HE-Reg"
+base1_results[which(base1_results$Method=="Case-Control HE-Reg"), "Method"] = "Case-Control\n HE-Reg"
+base1_results[which(base1_results$Method=="COXMM"), "Method"] = "COXMM"
+
+base3_results = subset(base3_results, select=-c(Variable, Parameter, meanCases, sdCases))
+base3_results$Framework = "B. TTE PGM: Weibull(Shape = 3, Scale = Genetics)"
+colnames(base3_results)[1:6] = c("Framework", "Method", "True Heritability", "K", "Estimated Heritability", "SE")
+#env1_results = subset(env1_results, select=-c(Variable, Parameter, meanCases, sdCases))
+#env1_results$Framework = "C. TTE PGM: Weibull(Shape = 1, Scale = Genetic + Environment)"
+#colnames(env1_results)[1:6] = c("Framework", "Method", "True Heritability", "K", "Estimated Heritability", "SE")
+
+cen_results = subset(cen_results, select=-c(Variable, Parameter, meanCases, sdCases))
+cen_results$Framework = "TTE PGM: Weibull(Shape = 1, Scale = Genetics); Exponential Censoring"
+colnames(cen_results)[1:6] = c("Framework", "Method", "True Heritability", "K", "Estimated Heritability", "SE")
+
+ltm_results = subset(ltm_results, select=-c(Variable, Parameter, meanCases, sdCases))
+ltm_results$Framework = "C. Case-Control PGM: Liability Threshold Model"
+colnames(ltm_results)[1:6] = c("Framework", "Method", "True Heritability", "K", "Estimated Heritability", "SE")
+
+fixed_results = subset(fixed_results, select=-c(Parameter, meanCases, sdCases, Method))
+colnames(fixed_results)[1:6] = c("Framework", "Method", "True Heritability", "K", "Estimated Heritability", "SE")
+fixed_results[which(fixed_results$Method=="Fixed1"), "Framework"] = "TTE PGM: Weibull(Shape = 1, Scale = Genetics + Fixed Effects); Var(Fixed Effects) = 0.01"
+fixed_results[which(fixed_results$Method=="Fixed50"), "Framework"] = "TTE PGM: Weibull(Shape = 1, Scale = Genetics + Fixed Effects); Var(Fixed Effects) = 0.50"
+fixed_results$Method = "COXMM"
+
+#fig2_results = rbind(base3_results, env1_results, cen_results, ltm_results, fixed_results)
+fig2_results = rbind(base3_results, cen_results, ltm_results, fixed_results)
+#sup_table1 = fig2_results
+#write.table(sup_table1, "~/Desktop/Heritability/tables_figures/SuppTable1.csv", row.names = F, col.names = T, sep=',', quote=F)
+
+fig2_results = fig2_results[-which(fig2_results$Method %in% c("Age-of-Onset HE-Reg", "Case-Control HE-Reg")),]
+fig2_results = fig2_results[-which(fig2_results$Framework=="TTE PGM: Weibull(Shape = 1, Scale = Genetics); Exponential Censoring"),]
+fig2_results = fig2_results[-which(fig2_results$Framework=="TTE PGM: Weibull(Shape = 1, Scale = Genetics + Fixed Effects); Var(Fixed Effects) = 0.01"),]
+fig2_results[which(fig2_results$Framework=="TTE PGM: Weibull(Shape = 1, Scale = Genetics + Fixed Effects); Var(Fixed Effects) = 0.50"), "Framework"] = "A. TTE PGM: Weibull(Shape = 1, Scale = Genetics + Fixed Effects)"
+fig2_results = subset(fig2_results, select = -c(Method))
+fig2_results$Framework = factor(fig2_results$Framework, levels = c("A. TTE PGM: Weibull(Shape = 1, Scale = Genetics + Fixed Effects)", 
+                                                                   "B. TTE PGM: Weibull(Shape = 3, Scale = Genetics)", 
+                                                                   #"C. TTE PGM: Weibull(Shape = 1, Scale = Genetic + Environment)", 
+                                                                   "C. Case-Control PGM: Liability Threshold Model"))
+
+fig2_results$K = str_remove(fig2_results$K, "Proportion of Events/Cases: ")
+colnames(fig2_results)[3] = "Proportion of Events/Cases (K):"
+```
+
+```{r figure2, include = FALSE}
+# Figure 1 -- sub-figures A and B (method overview were hand generated)
+base1_results["Proportion of Events/Cases (K):"] = str_remove(base1_results$K, "Proportion of Events/Cases: ")
+
+fig2a = ggplot(base1_results[which(base1_results$Method=="COXMM"),], aes(x=`True Heritability`, y=`Estimated Heritability`, ymin=`Estimated Heritability`-SE, ymax=`Estimated Heritability`+SE, color=`Proportion of Events/Cases (K):`)) +
+  geom_point(size = 0.8) + geom_errorbar(aes(width=0.02)) + geom_line() + geom_abline(intercept = 0.0, slope = 1) + coord_cartesian(xlim=c(0.0, 0.82), ylim=c(0.0,0.82)) + labs(x= TeX("True $\\sigma_g^2$"), y=TeX("Estimated $\\sigma_g^2$")) +
+  scale_color_manual(values = c("darkorange", "#52854C", "navy")) + all_theme + scale_y_continuous(breaks=seq(0,0.8,0.1)) + scale_x_continuous(breaks=seq(0,0.8,0.1)) + theme(legend.position = 'bottom')
+
+fig2b = ggplot(base1_results, aes(x=(`True Heritability`/(`True Heritability` + pi^2/6)), y=Her_log, ymin=Her_log-SE_log, ymax=Her_log+SE_log, color=Method)) +
+  geom_point(size = 0.8) + geom_errorbar(aes(width=0.01)) + geom_line() + geom_abline(intercept = 0.0, slope = 1) + coord_cartesian(xlim=c(0.0, 0.35), ylim=c(0.0,0.35)) + labs(x = TeX("True $h_g^2$"), y = TeX("Estimated $h_g^2$")) +
+  scale_color_manual(values = base1_methods_colors) + all_theme + facet_wrap(.~K, ncol = 1) + scale_y_continuous(breaks=seq(0.0,0.35,0.1)) + scale_x_continuous(breaks=seq(0.0,0.35,0.1)) + theme(legend.position = 'bottom')
+```
+
+```{r dropped_supp_fig1, echo = FALSE}
+dropped_extend1 = ggplot(fig2_results[which(fig2_results$`Proportion of Events/Cases (K):`!=0.01),], aes(x=`True Heritability`, y=`Estimated Heritability`, ymin=`Estimated Heritability`-SE, ymax=`Estimated Heritability`+SE, color=`Proportion of Events/Cases (K):`)) +
+  geom_point(size = 0.8) + geom_errorbar(aes(width=0.02)) + geom_line() + geom_abline(intercept = 0.0, slope = 1) + coord_cartesian(xlim=c(0.0, 0.82), ylim=c(0.0,0.82))  + labs(x= TeX("True $\\sigma_g^2$"), y=TeX("Estimated $\\sigma_g^2$")) +
+  all_theme + facet_wrap(.~Framework, nrow=3) + scale_y_continuous(breaks=seq(0,0.8,0.1)) + scale_x_continuous(breaks=seq(0,0.8,0.1)) + 
+  theme(legend.position='bottom') + scale_color_manual(values = c("darkorange", "#52854C", "navy"))
+```
+
+```{r figure3, echo = FALSE}
+fig3a = ggplot(fig2_results[which(fig2_results$`Proportion of Events/Cases (K):`!=0.01 & fig2_results$Framework=="A. TTE PGM: Weibull(Shape = 1, Scale = Genetics + Fixed Effects)"),], aes(x=(`True Heritability`/(`True Heritability` + pi^2/6)), y=Her_log, ymin=Her_log-SE_log, ymax=Her_log+SE_log, color=`Proportion of Events/Cases (K):`)) +
+  geom_point(size = 0.8) + geom_errorbar(aes(width=0.02)) + geom_line() + geom_abline(intercept = 0.0, slope = 1) + ggtitle("A. TTE PGM: Weibull(Shape = 1, Scale = Genetics + Fixed Effects)") +
+  coord_cartesian(xlim=c(0.0, 0.35), ylim=c(0.0,0.35)) + labs(x = TeX("True $h_g^2$"), y = TeX("Estimated $h_g^2$")) +
+  all_theme + scale_y_continuous(breaks=seq(0.0,0.35,0.1)) + scale_x_continuous(breaks=seq(0.0,0.35,0.1)) + scale_color_manual(values = c("darkorange", "#52854C", "navy"))
+
+fig3b = ggplot(fig2_results[which(fig2_results$`Proportion of Events/Cases (K):`!=0.01 & fig2_results$Framework=="B. TTE PGM: Weibull(Shape = 3, Scale = Genetics)"),], aes(x=(`True Heritability`/(`True Heritability` + pi^2/6)), y=Her_log, ymin=Her_log-SE_log, ymax=Her_log+SE_log, color=`Proportion of Events/Cases (K):`)) +
+  geom_point(size = 0.8) + geom_errorbar(aes(width=0.02)) + geom_line() + geom_abline(intercept = 0.0, slope = 1) + ggtitle("B. TTE PGM: Weibull(Shape = 3, Scale = Genetics)") +
+  coord_cartesian(xlim=c(0.0, 0.35), ylim=c(0.0,0.35)) + labs(x = TeX("True $h_g^2$"), y = TeX("Estimated $h_g^2$")) +
+  all_theme + scale_y_continuous(breaks=seq(0.0,0.35,0.1)) + scale_x_continuous(breaks=seq(0.0,0.35,0.1)) + scale_color_manual(values = c("darkorange", "#52854C", "navy"))
+
+#fig3c = ggplot(fig2_results[which(fig2_results$`Proportion of Events/Cases (K):`!=0.01 & fig2_results$Framework=="C. TTE PGM: Weibull(Shape = 1, Scale = Genetic + Environment)"),], aes(x=(`True Heritability`/(`True Heritability` + pi^2/6)), y=Her_log, ymin=Her_log-SE_log, ymax=Her_log+SE_log, color=`Proportion of Events/Cases (K):`)) +
+#  geom_point(size = 0.8) + geom_errorbar(aes(width=0.02)) + geom_line() + geom_abline(intercept = 0.0, slope = 1) + ggtitle("C. TTE PGM: Weibull(Shape = 1, Scale = Genetic + Environment)") +
+#  coord_cartesian(xlim=c(0.0, 0.35), ylim=c(0.0,0.35)) + labs(x = TeX("True $h_g^2$"), y = TeX("Estimated $h_g^2$")) +
+#  all_theme + scale_y_continuous(breaks=seq(0.0,0.35,0.1)) + scale_x_continuous(breaks=seq(0.0,0.35,0.1)) + scale_color_manual(values = c("darkorange", "#52854C", "navy"))
+
+fig3d = ggplot(fig2_results[which(fig2_results$`Proportion of Events/Cases (K):`!=0.01 & fig2_results$Framework=="C. Case-Control PGM: Liability Threshold Model"),], aes(x=`True Heritability`, y=Her_log, ymin=Her_log-SE_log, ymax=Her_log+SE_log, color=`Proportion of Events/Cases (K):`)) +
+  geom_point(size = 0.8) + geom_errorbar(aes(width=0.02)) + geom_line() + geom_abline(intercept = 0.0, slope = 1) + ggtitle("C. Case-Control PGM: Liability Threshold Model") +
+  coord_cartesian(xlim=c(0.0, 0.8), ylim=c(0.0,0.8)) + labs(x = TeX("True $\\sigma_g^2$"), y = TeX("Estimated $h_g^2$")) +
+  all_theme + scale_y_continuous(breaks=seq(0.0,0.8,0.1)) + scale_x_continuous(breaks=seq(0.0,0.8,0.1)) + scale_color_manual(values = c("darkorange", "#52854C", "navy"))
+
+
+fig3 = (fig3a / fig3b / fig3d) + plot_layout(guides = 'collect') & theme(legend.position = 'bottom')
+```
+
+```{r supp_fig1, echo = FALSE}
+extend1 = ggplot(fig2_results, aes(x=`True Heritability`, y=`Estimated Heritability`, ymin=`Estimated Heritability`-SE, ymax=`Estimated Heritability`+SE, color=`Proportion of Events/Cases (K):`)) +
+  geom_point(size = 0.8) + geom_errorbar(aes(width=0.02)) + geom_line() + geom_abline(intercept = 0.0, slope = 1) + coord_cartesian(xlim=c(0.0, 0.82), ylim=c(0.0,0.82))+ labs(x= TeX("True $\\sigma_g^2$"), y=TeX("Estimated $\\sigma_g^2$")) +
+  all_theme + facet_wrap(.~Framework, nrow=3) + scale_y_continuous(breaks=seq(0,0.8,0.1)) + scale_x_continuous(breaks=seq(0,0.8,0.1)) + 
+  theme(legend.position='bottom') + scale_color_manual(values = c("magenta", "darkorange", "#52854C", "navy"))
+```
+
+```{r process_withage, include = FALSE}
+h2_withage <- read.csv("~/Desktop/Heritability/ukbb/h2/intermediate/h2_withage.txt", sep="")
+h2_withage$Her = round(h2_withage$Her, 5)
+h2_withage["H2_log"] = NA
+h2_withage[which(h2_withage$Type=="TTE"),"H2_log"] = h2_withage$Her[which(h2_withage$Type=="TTE")]/(h2_withage$Her[which(h2_withage$Type=="TTE")] + pi^2/6) 
+age_data = NULL
+cc_data = NULL
+tte_data = NULL
+h2_log_data = NULL
+for(trait in unique(h2_withage$Trait)){
+    age_temp = h2_withage[which(h2_withage$Trait==trait & h2_withage$Type=="AGE"),]
+    temp = rma(yi=Her, sei=SE, method="FE", data=age_temp) 
+    age_data = rbind(age_data, c(trait, "Age-of-Onset HE-Reg", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
+    cc_temp = h2_withage[which(h2_withage$Trait==trait & h2_withage$Type=="CaseControl"),]
+    temp = rma(yi=Her, sei=SE, method="FE", data=cc_temp) 
+    cc_data = rbind(cc_data, c(trait, "Case-Control HE-Reg", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
+    tte_temp = h2_withage[which(h2_withage$Trait==trait & h2_withage$Type=="TTE"),]
+    beta_zeros = dim(tte_temp[which(tte_temp$Method=='tte' & tte_temp$Her==1e-4),])[1]
+    jack_zeros = dim(tte_temp[which(tte_temp$Method=='jackknife' & tte_temp$Her==1e-4),])[1]
+    counts = dim(tte_temp[which(tte_temp$Method=='tte'),])[1]
+    tte_group = NULL
+    h2_log_group = NULL
+    for(group in unique(tte_temp$Group)){
+      tte_beta = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="tte"),]
+      tte_jack = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="jackknife"),]
+      N=tte_beta$N
+      theta = tte_beta$Her
+      min_rate = min(tte_jack$N/N)
+      max_rate = max(tte_jack$N/N)
+      #if(min_rate < 0.75 | max_rate > 0.85){
+      #  print(trait)
+      #  print(tte_beta)
+      #  print(tte_jack)
+      #}
+      m_j = N - tte_jack$N
+      h_j = N/m_j
+      theta_notj = tte_jack$Her
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      tte_group = rbind(tte_group, c(group, theta, var_j))
+      
+      theta = tte_beta$H2_log
+      theta_notj = tte_jack$H2_log
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      h2_log_group = rbind(h2_log_group, c(group, theta, var_j))
+    }
+    tte_group = as.data.frame(tte_group)
+    colnames(tte_group) = c("group", "theta", "varj")
+    tte_group$theta = as.numeric(tte_group$theta)
+    tte_group$varj = as.numeric(tte_group$varj)
+    temp = rma(yi=theta, vi=varj, method="FE", data=tte_group)
+    tte_data = rbind(tte_data, c(trait, "COXMM sigma2_g", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+    
+    h2_log_group = as.data.frame(h2_log_group)
+    colnames(h2_log_group) = c("group", "theta", "varj")
+    h2_log_group$theta = as.numeric(h2_log_group$theta)
+    h2_log_group$varj = as.numeric(h2_log_group$varj)
+    temp = rma(yi=theta, vi=varj, method="FE", data=h2_log_group)
+    h2_log_data = rbind(h2_log_data, c(trait, "COXMM h2_log", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+}
+
+withage = data.frame(rbind(tte_data, h2_log_data, age_data, cc_data))
+colnames(withage) = c("Trait", "Method", "H2", "SE", "P", "BetaZeros", "JackZeros", "Counts")
+withage$Method = as.factor(withage$Method)
+withage$Trait = factor(withage$Trait, 
+                    levels = c("Af", "Cad", "DmT2", "Hf", "Ht", "HyperLip", "Mi"), 
+                    labels = c("Atrial Fibrillation", "Coronary Artery Disease", "Type 2 Diabetes",
+                               "Heart Failure", "Hypertension", "Hyperlipidemia", "Myocardial Infarction"))
+
+withage$H2 = as.numeric(withage$H2)
+withage$SE = as.numeric(withage$SE)
+withage$P = as.numeric(withage$P)
+```
+
+```{r process_age, include = FALSE}
+age_traits <- read.csv("~/Desktop/Heritability/ukbb/h2/intermediate/age_her.txt", sep="")
+age_traits$Her = round(age_traits$Her, 5)
+age_data = NULL
+for(trait in unique(age_traits$Trait)){
+    age_temp = age_traits[which(age_traits$Trait==trait & age_traits$Type=="AGE"),]
+    temp = rma(yi=Her, sei=SE, method="FE", data=age_temp) 
+    age_data = rbind(age_data, c(trait, "Age-of-Onset HE-Reg", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
+}
+
+cc_traits <- read.csv("~/Desktop/Heritability/ukbb/h2/intermediate/cc_her.txt", sep="")
+cc_traits$Her = round(cc_traits$Her, 5)
+cc_traits = cc_traits[-which(cc_traits$Trait=='glasses'),]
+cc_data = NULL
+for(trait in unique(cc_traits$Trait)){
+    cc_temp = cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="CaseControl"),]
+    temp = rma(yi=Her, sei=SE, method="FE", data=cc_temp) 
+    cc_data = rbind(cc_data, c(trait, "Case-Control HE-Reg", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
+    if(dim(cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="PopPrev"),])[1] > 0){
+      cc_temp = cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="PopPrev"),]
+      temp = rma(yi=Her, sei=SE, method="FE", data=cc_temp) 
+      cc_data = rbind(cc_data, c(trait, "PopPrev", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
+    }
+}
+
+tte_traits <- read.csv("~/Desktop/Heritability/ukbb/h2/intermediate/tte_her.txt", sep="")
+jack_traits <- read.csv("~/Desktop/Heritability/ukbb/h2/intermediate/jack_her.txt", sep="")
+none_cad_traits <- read.csv("~/Desktop/Heritability/ukbb/h2/intermediate/None_Cad_tte_noAge.txt", sep="")
+tte_traits = rbind(tte_traits, jack_traits, none_cad_traits)
+tte_traits = tte_traits[-which(tte_traits$Trait=='glasses'),]
+
+interval_only = c("DmT2_Af", "DmT2_Cad", "DmT2_Hf", "DmT2_Ht", "DmT2_HyperLip", "DmT2_Mi", 
+                  "Ht_Af", "Ht_Cad", "Ht_DmT2", "Ht_Hf", "Ht_HyperLip", "Ht_Mi", "HyperLip_Af", 
+                  "HyperLip_Cad", "HyperLip_DmT2", "HyperLip_Hf", "HyperLip_Ht", "HyperLip_Mi")
+
+tte_traits = tte_traits[-which(tte_traits$Trait %in% interval_only & tte_traits$Type=="TTE"),]
+# original TTE was the left censored to tte, interval was the duration
+# the original TTE is too messy -- only using interval for now
+tte_traits$Type="TTE"
+tte_traits$Her = round(tte_traits$Her, 5)
+tte_traits["H2_log"] = NA
+tte_traits[which(tte_traits$Type=="TTE"),"H2_log"] = tte_traits$Her[which(tte_traits$Type=="TTE")]/(tte_traits$Her[which(tte_traits$Type=="TTE")] + pi^2/6) 
+tte_data = NULL
+h2_log_data = NULL
+for(trait in unique(tte_traits$Trait)){
+    tte_temp = tte_traits[which(tte_traits$Trait==trait & tte_traits$Type=="TTE"),]
+    beta_zeros = dim(tte_temp[which(tte_temp$Method=='tte' & tte_temp$Her==1e-4),])[1]
+    jack_zeros = dim(tte_temp[which(tte_temp$Method=='jackknife' & tte_temp$Her==1e-4),])[1]
+    counts = dim(tte_temp[which(tte_temp$Method=='tte'),])[1]
+    tte_group = NULL
+    h2_log_group = NULL
+    for(group in unique(tte_temp$Group)){
+      tte_beta = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="tte"),]
+      tte_jack = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="jackknife"),]
+      N=tte_beta$N
+      theta = tte_beta$Her
+      min_rate = min(tte_jack$N/N, na.rm=T)
+      max_rate = max(tte_jack$N/N, na.rm=T)
+      #if(min_rate < 0.75 | max_rate > 0.85){
+      #  print(trait)
+      #  print(tte_beta)
+      #  print(tte_jack)
+      #}
+      m_j = N - tte_jack$N
+      h_j = N/m_j
+      theta_notj = tte_jack$Her
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      tte_group = rbind(tte_group, c(group, theta, var_j))
+      
+      theta = tte_beta$H2_log
+      theta_notj = tte_jack$H2_log
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      h2_log_group = rbind(h2_log_group, c(group, theta, var_j))
+    }
+    tte_group = as.data.frame(tte_group)
+    colnames(tte_group) = c("group", "theta", "varj")
+    tte_group$theta = as.numeric(tte_group$theta)
+    tte_group$varj = as.numeric(tte_group$varj)
+    temp = rma(yi=theta, vi=varj, method="FE", data=tte_group)
+    tte_data = rbind(tte_data, c(trait, "COXMM sigma2_g", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+    h2_log_group = as.data.frame(h2_log_group)
+    colnames(h2_log_group) = c("group", "theta", "varj")
+    h2_log_group$theta = as.numeric(h2_log_group$theta)
+    h2_log_group$varj = as.numeric(h2_log_group$varj)
+    temp = rma(yi=theta, vi=varj, method="FE", data=h2_log_group)
+    h2_log_data = rbind(h2_log_data, c(trait, "COXMM h2_log", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+}
+noage = data.frame(rbind(tte_data, h2_log_data, age_data, cc_data))
+colnames(noage) = c("Trait", "Method", "H2", "SE", "P", "BetaZeros", "JackZeros", "Counts")
+noage$Method = as.factor(noage$Method)
+# Add in the Yes Traits
+noage$Trait = factor(noage$Trait, 
+                     levels = c("Af", "Cad", "DmT2", "Hf", "Ht", "HyperLip", "Mi", 
+                                "arthritis", "asthma", "copd", "death", "dementia", 
+                                "depression", "hayfever", "hypothyroidism", "stroke", 
+                                "DmT2_Af", "DmT2_Cad", "DmT2_Hf", "DmT2_Ht", "DmT2_HyperLip", "DmT2_Mi",
+                                "Ht_Af", "Ht_Cad", "Ht_DmT2", "Ht_Hf", "Ht_HyperLip", "Ht_Mi",
+                                "HyperLip_Af", "HyperLip_Cad", "HyperLip_DmT2", "HyperLip_Hf", "HyperLip_Ht", "HyperLip_Mi",
+                                "Ht_age45", "Ht_age50", "Ht_age55", "Ht_age60", "Ht_age65", "Ht_age70", "Ht_age75",
+                                "Ht_half", "Ht_over60", "Ht_over70", "Ht_quart", "NoDmT2_Cad", "NoHt_Cad", "NoHyperLip_Cad",
+                                "None_Cad", "YesDmT2_Cad", "YesHt_Cad", "YesHyperLip_Cad"),
+                     labels = c("Atrial Fibrillation", "Coronary Artery Disease", "Type 2 Diabetes",
+                                "Heart Failure", "Hypertension", "Hyperlipidemia", "Myocardial Infarction",
+                                "Arthritis", "Asthma", "COPD", "Death", "Dementia", 
+                                "Depression", "Hayfever", "Hypothyroidism", "Stroke", 
+                                "Type 2 Diabetes->Atrial Fibrillation", "Type 2 Diabetes->Coronary Artery Disease", "Type 2 Diabetes->Heart Failure", 
+                                "Type 2 Diabetes->Hypertension", "Type 2 Diabetes->Hyperlipidemia", "Type 2 Diabetes->Myocardial Infarction",
+                                "Hypertension->Atrial Fibrillation", "Hypertension->Coronary Artery Disease", "Hypertension->Type 2 Diabetes",
+                                "Hypertension->Heart Failure", "Hypertension->Hyperlipidemia", "Hypertension->Myocardial Infarction",
+                                "Hyperlipidemia->Atrial Fibrillation", "Hyperlipidemia->Coronary Artery Disease", "Hyperlipidemia->Type 2 Diabetes", 
+                                "Hyperlipidemia->Heart Failure", "Hyperlipidemia->Hypertension", "Hyperlipidemia->Myocardial Infarction",
+                                "<45", "<50", "<55", "<60", "<65", "<70", "<75", "Hypertension (half)", ">60", ">70", "Hypertension (quarter)", 
+                                "No Type 2 Diabetes->Coronary Artery Disease", "No Hypertension->Coronary Artery Disease", "No Hyperlipidemia->Coronary Artery Disease",
+                                "No Interval Trait->Coronary Artery Disease", "Type 2 Diabetes->Coronary Artery Disease(not duration)", "Hypertension->Coronary Artery Disease (not duration)", "Hyperlipidemia->Coronary Artery Disease (not duration)"))
+
+noage$H2 = as.numeric(noage$H2)
+noage$SE = as.numeric(noage$SE)
+noage$P = as.numeric(noage$P)
+
+```
+
+```{r supp_table2, echo =F}
+all_traits = merge(noage, withage, by =c('Trait', 'Method'), suffixes =c('_noage','_withage'), all=T)
+
+sigma_g = all_traits[which(all_traits$Method=="COXMM sigma2_g"),]
+sigma_g = subset(sigma_g, select = c(Trait, Method, H2_noage, SE_noage, P_noage, H2_withage, SE_withage, P_withage))
+colnames(sigma_g) = c("Trait", "Method", "SigmaG_noage", "SigmaGSE_noage", "SigmaGP_noage", "SigmaG_withage", "SigmaGSE_withage", "SigmaGP_withage")
+sigma_g$Method = "COXMM h2_log"
+all_traits = all_traits[-which(all_traits$Method=="COXMM sigma2_g"),]
+all_traits = merge(all_traits, sigma_g, by = c("Trait", "Method"), all = T)
+
+age_traits = all_traits[which(all_traits$Method=="Age-of-Onset HE-Reg"),]
+age_traits = subset(age_traits, select = c(Trait, H2_noage, SE_noage, P_noage, H2_withage, SE_withage, P_withage))
+colnames(age_traits) = c("Trait", "AgeH2_noage", "AgeSE_noage", "AgeP_noage", "AgeH2_withage", "AgeSE_withage", "AgeP_withage")
+all_traits = all_traits[-which(all_traits$Method=="Age-of-Onset HE-Reg"),]
+all_traits = merge(all_traits, age_traits, by = c("Trait"), all = T)
+
+cc_traits = all_traits[which(all_traits$Method=="Case-Control HE-Reg"),]
+cc_traits = subset(cc_traits, select = c(Trait, H2_noage, SE_noage, P_noage, H2_withage, SE_withage, P_withage))
+colnames(cc_traits) = c("Trait", "CCH2_noage", "CCSE_noage", "CCP_noage", "CCH2_withage", "CCSE_withage", "CCP_withage")
+all_traits = all_traits[-which(all_traits$Method=="Case-Control HE-Reg"),]
+all_traits = merge(all_traits, cc_traits, by = c("Trait"), all = T)
+
+all_traits = subset(all_traits, select = c(Trait, Method, BetaZeros_noage, JackZeros_noage, Counts_noage, 
+                                           SigmaG_noage, SigmaGSE_noage, SigmaGP_noage,
+                                           H2_noage, SE_noage, P_noage,
+                                           CCH2_noage, CCSE_noage, CCP_noage,
+                                           AgeH2_noage, AgeSE_noage, AgeP_noage,
+                                           BetaZeros_withage, JackZeros_withage, Counts_withage, 
+                                           SigmaG_withage, SigmaGSE_withage, SigmaGP_withage,
+                                           H2_withage, SE_withage, P_withage,
+                                           CCH2_withage, CCSE_withage, CCP_withage,
+                                           AgeH2_withage, AgeSE_withage, AgeP_withage))
+
+write.table(all_traits, "~/Desktop/Heritability/ukbb/h2/intermediate/supp_table2.txt", quote=F, col.names = T, row.names=F, sep='\t')
+```
+
+```{r figure4, echo =FALSE}
+# main paper figure
+cardio = noage[which(noage$Trait %in% c('Atrial Fibrillation', 'Coronary Artery Disease', 'Type 2 Diabetes', 'Heart Failure', 'Hypertension', 'Hyperlipidemia', 'Myocardial Infarction') & noage$Method!='COXMM sigma2_g'),]
+cardio$Trait = as.character(cardio$Trait)
+cardio[which(cardio$Trait=="Atrial Fibrillation"),"Trait"] = "Atrial Fibrillation\n(7.1%)"
+cardio[which(cardio$Trait=="Coronary Artery Disease"),"Trait"] = "Coronary Artery Disease\n(11.7%)"
+cardio[which(cardio$Trait=="Type 2 Diabetes"),"Trait"] = "Type 2 Diabetes\n(8.0%)"
+cardio[which(cardio$Trait=="Heart Failure"),"Trait"] = "Heart Failure\n(4.0%)"
+cardio[which(cardio$Trait=="Hypertension"),"Trait"] = "Hypertension\n(40.3%)"
+cardio[which(cardio$Trait=="Hyperlipidemia"),"Trait"] = "Hyperlipidemia\n(24.0%)"
+cardio[which(cardio$Trait=="Myocardial Infarction"),"Trait"] = "Myocardial Infarction\n(5.7%)"
+cardio$Trait = as.factor(cardio$Trait)
+cardio$Method = as.character(cardio$Method)
+cardio[which(cardio$Method=="COXMM h2_log"), "Method"] = "COXMM"
+cardio$Method = factor(cardio$Method, levels = c("COXMM", "Case-Control HE-Reg", "Age-of-Onset HE-Reg"))
+fig4a = ggplot(cardio, aes(x=Trait, y=H2, ymin=H2-SE, ymax=H2+SE, fill=Method)) + 
+  geom_bar(stat='identity', position = position_dodge(0.9)) + geom_errorbar(position = position_dodge(0.9)) +
+  theme_bw() + coord_cartesian(y=c(0.0, 0.6)) + labs(y="Heritability") + scale_fill_manual(values = methods_colors) + xlab("Trait") + theme(legend.position = 'bottom')
+
+
+ltm_results = ltm_results[,-1]
+ltm_results = ltm_results[-which(ltm_results$Method=="Age-of-Onset HE-Reg"),]
+ltm_results = ltm_results[-which(ltm_results$K=="Proportion of Events/Cases: 0.01"),]
+ltm_cc = ltm_results[which(ltm_results$Method!="COXMM"), c(2,3,6,7)]
+ltm_coxmm = ltm_results[which(ltm_results$Method=="COXMM"), c(2,3,6,7)]
+ltm_data = merge(ltm_coxmm, ltm_cc, by = c("True Heritability", "K"), suffixes = c("_coxmm", "_cc"))
+ltm_data = ltm_data[which(ltm_data$K!="Proportion of Events/Cases: 0.01"),]
+colnames(ltm_data) = c("H2", "K", "H2_coxmm", "SE_coxmm", "H2_cc", "SE_cc")
+
+base1_results = base1_results[,-8]
+base1_results = base1_results[-which(base1_results$Method=="Age-of-Onset\n HE-Reg"),]
+base1_results[which(base1_results$Method=="Case-Control\n HE-Reg"), "Method"] = "Case-Control HE-Reg"
+tte_cc = base1_results[which(base1_results$Method=="Case-Control HE-Reg"), c(2,3,6,7)]
+tte_coxmm = base1_results[which(base1_results$Method=="COXMM"), c(2,3,6,7)]
+tte_data = merge(tte_coxmm, tte_cc, by = c("True Heritability", "K"), suffixes = c("_coxmm", "_cc"))
+colnames(tte_data) = c("H2", "K", "H2_coxmm", "SE_coxmm", "H2_cc", "SE_cc")
+
+plot_traits = noage[which(noage$Method!='COXMM sigma2_g'),]
+set1 = c("Atrial Fibrillation", "Coronary Artery Disease", "Heart Failure",
+         "Hyperlipidemia", "Hypertension", "Myocardial Infarction", "Type 2 Diabetes")
+
+set2 = c("Arthritis", "Asthma", "COPD", "Death", "Dementia", 
+         "Depression", "Hayfever", "Hypothyroidism", "Stroke")
+
+set3 = c("Type 2 Diabetes->Atrial Fibrillation", "Type 2 Diabetes->Coronary Artery Disease",
+         "Type 2 Diabetes->Heart Failure", "Type 2 Diabetes->Hyperlipidemia", "Type 2 Diabetes->Hypertension",
+         "Type 2 Diabetes->Myocardial Infarction",
+         "Hypertension->Atrial Fibrillation", "Hypertension->Coronary Artery Disease", "Hypertension->Heart Failure",
+         "Hypertension->Hyperlipidemia", "Hypertension->Myocardial Infarction", "Hypertension->Type 2 Diabetes",
+         "Hyperlipidemia->Atrial Fibrillation", "Hyperlipidemia->Coronary Artery Disease", "Hyperlipidemia->Heart Failure",                 
+         "Hyperlipidemia->Hypertension", "Hyperlipidemia->Myocardial Infarction", "Hyperlipidemia->Type 2 Diabetes")
+
+plot_traits = plot_traits[which(plot_traits$Trait %in% c(set1, set2, set3)), 1:5]
+
+plot_traits$Method = as.character(plot_traits$Method)
+plot_traits[which(plot_traits$Method=="COXMM h2_log"), "Method"] = "COXMM"
+plot_traits = plot_traits[-which(plot_traits$Method=="Age-of-Onset HE-Reg"),]
+plot_traits["Prop"] = NA
+plot_traits[which(plot_traits$Trait=="Atrial Fibrillation"),"Prop"] = 0.071
+plot_traits[which(plot_traits$Trait=="Coronary Artery Disease"),"Prop"] = 0.117
+plot_traits[which(plot_traits$Trait=="Type 2 Diabetes"),"Prop"] = 0.080
+plot_traits[which(plot_traits$Trait=="Heart Failure"),"Prop"] = 0.040
+plot_traits[which(plot_traits$Trait=="Hypertension"),"Prop"] = 0.403
+plot_traits[which(plot_traits$Trait=="Hyperlipidemia"),"Prop"] = 0.240
+plot_traits[which(plot_traits$Trait=="Myocardial Infarction"),"Prop"] = 0.057
+
+plot_traits[which(plot_traits$Trait=="Arthritis"),"Prop"] = 0.079
+plot_traits[which(plot_traits$Trait=="Asthma"),"Prop"] = 0.103
+plot_traits[which(plot_traits$Trait=="COPD"),"Prop"] = 0.050
+plot_traits[which(plot_traits$Trait=="Death"),"Prop"] = 0.088
+plot_traits[which(plot_traits$Trait=="Dementia"),"Prop"] = 0.015
+plot_traits[which(plot_traits$Trait=="Depression"),"Prop"] = 0.056
+plot_traits[which(plot_traits$Trait=="Hayfever"),"Prop"] = 0.209
+plot_traits[which(plot_traits$Trait=="Hypothyroidism"),"Prop"] = 0.047
+plot_traits[which(plot_traits$Trait=="Stroke"),"Prop"] = 0.035
+
+plot_traits[which(plot_traits$Trait=="Hyperlipidemia->Atrial Fibrillation"),"Prop"] = 0.102
+plot_traits[which(plot_traits$Trait=="Hyperlipidemia->Coronary Artery Disease"),"Prop"] = 0.156
+plot_traits[which(plot_traits$Trait=="Hyperlipidemia->Heart Failure"),"Prop"] = 0.073
+plot_traits[which(plot_traits$Trait=="Hyperlipidemia->Hypertension"),"Prop"] = 0.380
+plot_traits[which(plot_traits$Trait=="Hyperlipidemia->Myocardial Infarction"),"Prop"] = 0.070
+plot_traits[which(plot_traits$Trait=="Hyperlipidemia->Type 2 Diabetes"),"Prop"] = 0.122
+plot_traits[which(plot_traits$Trait=="Hypertension->Atrial Fibrillation"),"Prop"] = 0.105
+plot_traits[which(plot_traits$Trait=="Hypertension->Coronary Artery Disease"),"Prop"] = 0.150
+plot_traits[which(plot_traits$Trait=="Hypertension->Heart Failure"),"Prop"] = 0.068
+plot_traits[which(plot_traits$Trait=="Hypertension->Hyperlipidemia"),"Prop"] = 0.333
+plot_traits[which(plot_traits$Trait=="Hypertension->Myocardial Infarction"),"Prop"] = 0.066
+plot_traits[which(plot_traits$Trait=="Hypertension->Type 2 Diabetes"),"Prop"] = 0.123
+plot_traits[which(plot_traits$Trait=="Type 2 Diabetes->Atrial Fibrillation"),"Prop"] = 0.106
+plot_traits[which(plot_traits$Trait=="Type 2 Diabetes->Coronary Artery Disease"),"Prop"] = 0.146
+plot_traits[which(plot_traits$Trait=="Type 2 Diabetes->Heart Failure"),"Prop"] = 0.087
+plot_traits[which(plot_traits$Trait=="Type 2 Diabetes->Hyperlipidemia"),"Prop"] = 0.408
+plot_traits[which(plot_traits$Trait=="Type 2 Diabetes->Hypertension"),"Prop"] = 0.293
+plot_traits[which(plot_traits$Trait=="Type 2 Diabetes->Myocardial Infarction"),"Prop"] = 0.066
+
+plot_traits["Signif"] = "No"
+plot_traits[which(plot_traits$P<0.05/7 & plot_traits$Trait %in% set1), "Signif"] = "Yes"
+plot_traits[which(plot_traits$P<0.05/9 & plot_traits$Trait %in% set2), "Signif"] = "Yes"
+plot_traits[which(plot_traits$P<0.05/18 & plot_traits$Trait %in% set3), "Signif"] = "Yes"
+plot_traits[which(plot_traits$Trait %in% c("Stroke", "Death")), "Signif"] = "No"
+plot_traits["K"] = NULL
+for(line in 1:dim(plot_traits)[1]){
+  diff5 = abs(plot_traits[line, "Prop"] - 0.05)
+  diff20 = abs(plot_traits[line, "Prop"] - 0.20)
+  diff40 = abs(plot_traits[line, "Prop"] - 0.40)
+  if(diff5<diff20 & diff5<diff40){
+    plot_traits[line, "K"] = 0.05
+  } else if(diff20<diff5 & diff20<diff40){
+    plot_traits[line, "K"] = 0.20
+  } else if(diff40<diff5 & diff40<diff20){
+    plot_traits[line, "K"] = 0.40
+  } else{
+    print(plot_traits[line,])
+  }
+}
+
+real_cc = plot_traits[which(plot_traits$Method=="Case-Control HE-Reg"),c(1,3,4)]
+real_tte = plot_traits[which(plot_traits$Method=="COXMM"),c(1,6,7,8,3,4)]
+real_data = merge(real_tte, real_cc, by = "Trait", suffixes = c("_TTE", "_CC"))
+colnames(real_data) = c("Trait", "Prop", "Significant", "K", "H2_TTE_real", "SE_TTE_real", "H2_CC_real", "SE_CC_real")
+real_data$K = paste0("Proportion of Events/Cases: ", real_data$K)
+colnames(ltm_data) = c("True", "K", "H2_TTE_sims", "SE_TTE_sims", "H2_CC_sims", "SE_CC_sims")
+ltm_real_data = merge(real_data, ltm_data, by = "K")
+ltm_real_data["diff"] = abs(ltm_real_data$H2_CC_real - ltm_real_data$True)
+final_ltm_real_data = NULL
+for(t in unique(ltm_real_data$Trait)){
+    temp = ltm_real_data[which(ltm_real_data$Trait==t),]
+    final_ltm_real_data = rbind(final_ltm_real_data, temp[which(temp$diff==min(temp$diff)),])
+}
+
+final_ltm_real_data["Phenotype"] = "Cardiovascular Traits"
+final_ltm_real_data[which(final_ltm_real_data$Trait %in% set2), "Phenotype"] = "Other Traits"
+final_ltm_real_data[which(final_ltm_real_data$Trait %in% set3), "Phenotype"] = "Interval Traits"
+
+colnames(tte_data) = c("True", "K", "H2_TTE_sims", "SE_TTE_sims", "H2_CC_sims", "SE_CC_sims")
+tte_real_data = merge(real_data, tte_data, by = "K")
+tte_real_data$True = tte_real_data$True/(tte_real_data$True + pi^2/6)
+tte_real_data["diff"] = abs(tte_real_data$H2_TTE_real - ltm_real_data$True)
+final_tte_real_data = NULL
+for(t in unique(tte_real_data$Trait)){
+    temp = tte_real_data[which(tte_real_data$Trait==t),]
+    final_tte_real_data = rbind(final_tte_real_data, temp[which(temp$diff==min(temp$diff)),])
+}
+
+final_tte_real_data["Phenotype"] = "Cardiovascular Traits"
+final_tte_real_data[which(final_tte_real_data$Trait %in% set2), "Phenotype"] = "Other Traits"
+final_tte_real_data[which(final_tte_real_data$Trait %in% set3), "Phenotype"] = "Interval Traits"
+
+fig4b = ggplot(final_ltm_real_data[which(final_ltm_real_data$Phenotype=="Cardiovascular Traits"),], aes(x=H2_TTE_sims, y=H2_TTE_real, xmin=H2_TTE_sims-SE_TTE_sims, ymin=H2_TTE_real-SE_TTE_real, xmax=H2_TTE_sims+SE_TTE_sims, ymax=H2_TTE_real+SE_TTE_real, color = Trait, label=Trait)) + geom_point() + theme_minimal() + lims(x=c(0.0, 0.3), y=c(0.0, 0.3)) + geom_abline() + xlab("COXMM heritability in LTM simulations") + ylab("COXMM heritability in real data")+ theme(legend.position = 'bottom') + guides(color='none') + geom_errorbar(orientation = 'y', width=0.0005) + geom_errorbar(width=0.0005) + geom_label_repel(show.legend = FALSE, size = 3, nudge_x = 0.05, nudge_y = -0.03) 
+
+fig4c = ggplot(final_tte_real_data[which(final_tte_real_data$Phenotype=="Cardiovascular Traits"),], aes(x=H2_CC_sims, y=H2_CC_real, xmin=H2_CC_sims-SE_CC_sims, ymin=H2_CC_real-SE_CC_real, xmax=H2_CC_sims+SE_CC_sims, ymax=H2_CC_real+SE_CC_real, color = Trait, label=Trait)) + geom_point() + theme_minimal() + coord_cartesian(xlim=c(0.0, 0.4), ylim=c(0.0, 0.4)) + geom_abline() + xlab("Case-Control HE-Reg heritability in TTE simulations") + ylab("Case-Control HE-Reg heritability in real data") + theme(legend.position = 'bottom') + guides(color='none') + geom_errorbar(orientation = 'y', width=0.0005) + geom_errorbar(width=0.0005) + geom_label_repel(show.legend = FALSE, size = 3, nudge_x = 0.05, nudge_y = -0.03) 
+
+fig4 = (fig4a + (fig4b/fig4c) + plot_annotation(tag_levels = 'A') + plot_layout(widths = c(4,3)))
+
+#supp2a = 
+#tte_fig = ggplot(final_tte_real_data, aes(x=H2_CC_sims, y=H2_CC_real, color=K, shape=Significant)) + geom_point() + theme_minimal() + lims(x=c(0.0, 0.4), y=c(0.0, 0.4)) + geom_abline() + facet_wrap(.~Phenotype) + xlab("Case-Control heritability in TTE simulations") + ylab("Case-Control heritability in real data") + theme(legend.position = 'bottom')
+```
+
+```{r supp_fig3, echo = FALSE}
+trunc_fig = noage[which(noage$Trait %in% c('<45', '<50', '<55', '<60', '<65', '<70', '<75', 'Hypertension') & noage$Method!="COXMM sigma2_g"),1:5]                                                   
+trunc_fig$Method = as.character(trunc_fig$Method)
+trunc_fig[which(trunc_fig$Method=="COXMM h2_log"), "Method"] = "COXMM"
+trunc_fig[which(trunc_fig$Method=="PopPrev"), "Method"] = "Case-Control HE-Reg (Population Prevalence)"
+trunc_fig[which(trunc_fig$Method=="Case-Control HE-Reg"), "Method"] = "Case-Control HE-Reg (Sample Prevalence)"
+
+overall = trunc_fig[which(trunc_fig$Trait=="Hypertension"),]
+trunc_fig = trunc_fig[-which(trunc_fig$Trait=="Hypertension"),]
+trunc_fig$Method = factor(trunc_fig$Method,
+                          levels = c("COXMM", "Case-Control HE-Reg (Population Prevalence)", "Case-Control HE-Reg (Sample Prevalence)", "Age-of-Onset HE-Reg"))
+
+
+# the line and std err are for "sample prev" but full sample == pop prev
+extend3 = ggplot(trunc_fig, 
+              aes(x=Trait, y=H2, ymin=H2-SE, ymax=H2+SE, fill=Method)) + 
+          geom_bar(stat='identity', position = position_dodge(0.9)) + 
+          geom_errorbar(position = position_dodge(0.9)) + theme_bw() + 
+          labs(y=TeX("Estimated Heritability"), x="Truncated Hypertension") + 
+          scale_fill_manual(values = alt_methods_colors) +
+          geom_hline(yintercept = overall[which(overall$Method=="COXMM"),"H2"], color = "#e41a1c", linewidth=1) +
+          geom_hline(yintercept = overall[which(overall$Method=="Age-of-Onset HE-Reg"),"H2"], color = "#4daf4a", linewidth=1) +
+          geom_hline(yintercept = overall[which(overall$Method=="Case-Control HE-Reg (Sample Prevalence)"),"H2"], color = "#377eb8", linewidth=1) +
+          annotate('ribbon', x = c(-Inf, Inf), 
+              ymin = overall[which(overall$Method=="COXMM"),"H2"] - overall[which(overall$Method=="COXMM"),"SE"],
+              ymax = overall[which(overall$Method=="COXMM"),"H2"] + overall[which(overall$Method=="COXMM"),"SE"], alpha = 0.3, fill = "#e41a1c") +
+          annotate('ribbon', x = c(-Inf, Inf), 
+              ymin = overall[which(overall$Method=="Age-of-Onset HE-Reg"),"H2"] - overall[which(overall$Method=="Age-of-Onset HE-Reg"),"SE"],
+              ymax = overall[which(overall$Method=="Age-of-Onset HE-Reg"),"H2"] + overall[which(overall$Method=="Age-of-Onset HE-Reg"),"SE"], alpha = 0.3, fill = "#4daf4a") + 
+          annotate('ribbon', x = c(-Inf, Inf), 
+              ymin = overall[which(overall$Method=="Case-Control HE-Reg (Sample Prevalence)"),"H2"] - overall[which(overall$Method=="Case-Control HE-Reg (Sample Prevalence)"),"SE"], 
+              ymax = overall[which(overall$Method=="Case-Control HE-Reg (Sample Prevalence)"),"H2"] + overall[which(overall$Method=="Case-Control HE-Reg (Sample Prevalence)"),"SE"], alpha = 0.3, fill = "#377eb8")
+
+```
+
+```{r supp_fig4, echo = FALSE}
+#age vs non-age covariate
+cardio_covar = all_traits[which(all_traits$Trait %in% c('Atrial Fibrillation', 'Coronary Artery Disease', 'Type 2 Diabetes', 'Heart Failure', 'Hypertension', 'Hyperlipidemia', 'Myocardial Infarction') & all_traits$Method!='COXMM sigma2_g'),]
+cardio_covar$Trait = as.character(cardio_covar$Trait)
+cardio_covar$Trait = as.factor(cardio_covar$Trait)
+cardio_covar$Method = as.character(cardio_covar$Method)
+cardio_covar[which(cardio_covar$Method=="COXMM h2_log"), "Method"] = "COXMM"
+others = cardio_covar
+cardio_covar = subset(cardio_covar, select = c(Trait, Method, H2_noage, SE_noage, H2_withage, SE_withage))
+cc_covar = subset(others, select = c(Trait, Method, CCH2_noage, CCSE_noage, CCH2_withage, CCSE_withage))
+cc_covar$Method = "Case-Control HE-Reg"
+colnames(cc_covar) = colnames(cardio_covar)
+age_covar = subset(others, select = c(Trait, Method, AgeH2_noage, AgeSE_noage, AgeH2_withage, AgeSE_withage))
+age_covar$Method = "Age-of-Onset HE-Reg"
+colnames(age_covar) = colnames(cardio_covar)
+cardio_covar = rbind(cardio_covar, cc_covar, age_covar)
+cardio_covar$Method = factor(cardio_covar$Method, levels = c("COXMM", "Case-Control HE-Reg", "Age-of-Onset HE-Reg"))
+
+extend4 = ggplot(cardio_covar, aes(x=H2_withage, xmin=H2_withage-SE_withage, xmax=H2_withage+SE_withage, 
+                              y=H2_noage, ymin=H2_noage-SE_noage, ymax=H2_noage+SE_noage, color = Trait)) + 
+  geom_point() + geom_errorbar() + geom_errorbarh() + theme_bw() + geom_abline() + 
+  facet_wrap(.~Method) + coord_cartesian(xlim=c(0,0.6), ylim=c(0,0.6)) +
+  labs(x=TeX("Heritability estimate with age covariate"), y=TeX("Heritability estimate without age covariate"))
+```
+
+```{r figure5, echo = FALSE}
+interval_traits = c("Hyperlipidemia->Atrial Fibrillation", "Hyperlipidemia->Coronary Artery Disease", "Hyperlipidemia->Heart Failure",
+                    "Hyperlipidemia->Hypertension", "Hyperlipidemia->Myocardial Infarction",
+                    "Hyperlipidemia->Type 2 Diabetes", "Hypertension->Atrial Fibrillation", "Hypertension->Coronary Artery Disease",
+                    "Hypertension->Heart Failure", "Hypertension->Hyperlipidemia", "Hypertension->Myocardial Infarction",
+                    "Hypertension->Type 2 Diabetes", "Type 2 Diabetes->Atrial Fibrillation", "Type 2 Diabetes->Coronary Artery Disease",
+                    "Type 2 Diabetes->Heart Failure", "Type 2 Diabetes->Hyperlipidemia", "Type 2 Diabetes->Hypertension",
+                    "Type 2 Diabetes->Myocardial Infarction")
+
+intervals = noage[which(noage$Trait %in% interval_traits & noage$Method %in% c("COXMM h2_log", "Case-Control HE-Reg")),]
+intervals$Trait = as.character(intervals$Trait)
+intervals$Method = as.character(intervals$Method)
+intervals[which(intervals$Method=="COXMM h2_log"), "Method"] = "COXMM"
+intervals$Method = factor(intervals$Method, levels = c("COXMM", "Case-Control HE-Reg"))
+intervals["Index"] = "Index Event: Hypertension"
+intervals[which(intervals$Trait=="Type 2 Diabetes"), "Index"] = "Index Event: Type 2 Diabetes"
+intervals[which(intervals$Trait=="Hyperlipidemia"), "Index"] = "Index Event: Hyperlipidemia"
+intervals[grep("Hyperlipidemia->", intervals$Trait), "Index"] = "Index Event: Hyperlipidemia"
+intervals[grep("Type 2 Diabetes->", intervals$Trait), "Index"] = "Index Event: Type 2 Diabetes"
+intervals["Terminal Trait"] = intervals$Trait
+intervals$`Terminal Trait` = str_remove(intervals$`Terminal Trait`, "Hyperlipidemia->")
+intervals$`Terminal Trait` = str_remove(intervals$`Terminal Trait`, "Hypertension->")
+intervals$`Terminal Trait` = str_remove(intervals$`Terminal Trait`, "Type 2 Diabetes->")
+
+fig5 = ggplot(intervals, aes(x=`Terminal Trait`, y=H2, ymin=H2-SE, ymax=H2+SE, fill=Method)) + 
+  geom_bar(stat='identity', position = position_dodge(0.9)) + geom_errorbar(position = position_dodge(0.9)) +
+  theme_bw() + coord_cartesian(y=c(0.0, 0.5)) + labs(y="Heritability") + scale_fill_manual(values = new_methods_colors) + facet_wrap(.~Index, ncol=1) + theme(legend.position = 'bottom')
+```
+
+```{r figure6, echo = FALSE}
+other_traits = c('Arthritis', "Asthma", "COPD", "Death", "Dementia", "Depression", "Hayfever", "Hypothyroidism", "Stroke")
+others = noage[which(noage$Trait %in% other_traits & noage$Method %in% c("COXMM h2_log", "Case-Control HE-Reg")),]
+others$Trait = as.character(others$Trait)
+others$Trait = as.factor(others$Trait)
+others$Method = as.character(others$Method)
+others[which(others$Method=="COXMM h2_log"), "Method"] = "COXMM"
+others$Method = factor(others$Method, levels = c("COXMM", "Case-Control HE-Reg"))
+
+others$Trait = as.character(others$Trait)
+others[which(others$Trait=="Arthritis"),"Trait"] = "Arthritis\n(7.9%)"
+others[which(others$Trait=="Asthma"),"Trait"] = "Asthma\n(10.3%)"
+others[which(others$Trait=="COPD"),"Trait"] = "COPD\n(5.0%)"
+others[which(others$Trait=="Death"),"Trait"] = "Death\n(8.8%)"
+others[which(others$Trait=="Dementia"),"Trait"] = "Dementia\n(1.5%)"
+others[which(others$Trait=="Depression"),"Trait"] = "Depression\n(5.6%)"
+others[which(others$Trait=="Hayfever"),"Trait"] = "Hayfever\n(20.9%)"
+others[which(others$Trait=="Hypothyroidism"),"Trait"] = "Hypothyroidism\n(4.7%)"
+others[which(others$Trait=="Stroke"),"Trait"] = "Stroke\n(3.5%)"
+
+others$Trait = as.factor(others$Trait)
+
+other_ltm_real = final_ltm_real_data[which(final_ltm_real_data$Phenotype=="Other Traits"),]
+other_ltm_real$Trait = as.character(other_ltm_real$Trait)
+other_ltm_real$Trait = as.factor(other_ltm_real$Trait)
+
+other_tte_real = final_tte_real_data[which(final_tte_real_data$Phenotype=="Other Traits"),]
+other_tte_real$Trait = as.character(other_tte_real$Trait)
+other_tte_real$Trait = as.factor(other_tte_real$Trait)
+
+fig6a = ggplot(others, aes(x=Trait, y=H2, ymin=H2-SE, ymax=H2+SE, fill=Method)) + 
+  geom_bar(stat='identity', position = position_dodge(0.9)) + geom_errorbar(position = position_dodge(0.9)) +
+  theme_bw() + coord_cartesian(y=c(0.0, 0.45)) + labs(y="Heritability") + scale_fill_manual(values = new_methods_colors) + theme(legend.position = 'bottom')
+
+fig6b = ggplot(other_ltm_real, aes(x=H2_TTE_sims, y=H2_TTE_real, xmin=H2_TTE_sims-SE_TTE_sims, ymin=H2_TTE_real-SE_TTE_real, xmax=H2_TTE_sims+SE_TTE_sims, ymax=H2_TTE_real+SE_TTE_real, color = Trait, label=Trait)) + geom_point() + theme_minimal() + lims(x=c(0.0, 0.3), y=c(0.0, 0.3)) + geom_abline() + xlab("COXMM heritability in LTM simulations") + ylab("COXMM heritability in real data")+ theme(legend.position = 'bottom') + guides(color='none') + geom_errorbar(orientation = 'y', width=0.0005) + geom_errorbar(width=0.0005) + geom_label_repel(show.legend = FALSE, size = 3, nudge_x = 0.05, nudge_y=0.03) + scale_color_discrete(drop=FALSE)
+
+fig6c = ggplot(other_tte_real[-which(other_tte_real$Trait %in% c('Death', 'Stroke')),], aes(x=H2_CC_sims, y=H2_CC_real, xmin=H2_CC_sims-SE_CC_sims, ymin=H2_CC_real-SE_CC_real, xmax=H2_CC_sims+SE_CC_sims, ymax=H2_CC_real+SE_CC_real, color = Trait, label=Trait)) + geom_point() + theme_minimal() + coord_cartesian(xlim=c(0.0, 0.4), ylim=c(0.0, 0.4)) + geom_abline() + xlab("Case-Control HE-Reg heritability in TTE simulations") + ylab("Case-Control HE-Reg heritability in real data") + theme(legend.position = 'bottom') + guides(color='none') + geom_errorbar(orientation = 'y', width=0.0005) + geom_errorbar(width=0.0005) + geom_label_repel(show.legend = FALSE, size = 3, nudge_x = 0.05, nudge_y = -0.03) + scale_color_discrete(drop=FALSE)
+
+fig6 = (fig6a + (fig6b/fig6c) + plot_annotation(tag_levels = 'A') + plot_layout(widths = c(5,3)))
+```
+
+```{r supp_fig2, echo = FALSE}
+
+final_ltm_real_data["Indexing Event"] = NA
+final_ltm_real_data[grep('Hypertension->', final_ltm_real_data$Trait), "Indexing Event"] = "Hypertension"
+final_ltm_real_data[grep('Type 2 Diabetes->', final_ltm_real_data$Trait), "Indexing Event"] = "Type 2 Diabetes"
+final_ltm_real_data[grep('Hyperlipidemia->', final_ltm_real_data$Trait), "Indexing Event"] = "Hyperlipidemia"
+
+final_tte_real_data["Indexing Event"] = NA
+final_tte_real_data[grep('Hypertension->', final_tte_real_data$Trait), "Indexing Event"] = "Hypertension"
+final_tte_real_data[grep('Type 2 Diabetes->', final_tte_real_data$Trait), "Indexing Event"] = "Type 2 Diabetes"
+final_tte_real_data[grep('Hyperlipidemia->', final_tte_real_data$Trait), "Indexing Event"] = "Hyperlipidemia"
+
+final_ltm_real_data["Terminal Event"] = NA
+final_ltm_real_data[grep('->Atrial Fibrillation', final_ltm_real_data$Trait), "Terminal Event"] = "Atrial Fibrillation"
+final_ltm_real_data[grep('->Coronary Artery Disease', final_ltm_real_data$Trait), "Terminal Event"] = "Coronary Artery Disease"
+final_ltm_real_data[grep('->Heart Failure', final_ltm_real_data$Trait), "Terminal Event"] = "Heart Failure"
+final_ltm_real_data[grep('->Hyperlipidemia', final_ltm_real_data$Trait), "Terminal Event"] = "Hyperlipidemia"
+final_ltm_real_data[grep('->Hypertension', final_ltm_real_data$Trait), "Terminal Event"] = "Hypertension"
+final_ltm_real_data[grep('->Myocardial Infarction', final_ltm_real_data$Trait), "Terminal Event"] = "Myocardial Infarction"
+final_ltm_real_data[grep('->Type 2 Diabetes', final_ltm_real_data$Trait), "Terminal Event"] = "Type 2 Diabetes"
+
+final_tte_real_data["Terminal Event"] = NA
+final_tte_real_data[grep('->Atrial Fibrillation', final_tte_real_data$Trait), "Terminal Event"] = "Atrial Fibrillation"
+final_tte_real_data[grep('->Coronary Artery Disease', final_tte_real_data$Trait), "Terminal Event"] = "Coronary Artery Disease"
+final_tte_real_data[grep('->Heart Failure', final_tte_real_data$Trait), "Terminal Event"] = "Heart Failure"
+final_tte_real_data[grep('->Hyperlipidemia', final_tte_real_data$Trait), "Terminal Event"] = "Hyperlipidemia"
+final_tte_real_data[grep('->Hypertension', final_tte_real_data$Trait), "Terminal Event"] = "Hypertension"
+final_tte_real_data[grep('->Myocardial Infarction', final_tte_real_data$Trait), "Terminal Event"] = "Myocardial Infarction"
+final_tte_real_data[grep('->Type 2 Diabetes', final_tte_real_data$Trait), "Terminal Event"] = "Type 2 Diabetes"
+
+extend2a = ggplot(final_ltm_real_data[which(final_ltm_real_data$Phenotype=="Interval Traits"),], aes(x=H2_TTE_sims, y=H2_TTE_real, xmin=H2_TTE_sims-SE_TTE_sims, ymin=H2_TTE_real-SE_TTE_real, xmax=H2_TTE_sims+SE_TTE_sims, ymax=H2_TTE_real+SE_TTE_real, color = `Indexing Event`, label=`Terminal Event`)) + geom_point() + theme_minimal() + coord_cartesian(xlim=c(0.0, 0.3), ylim=c(0.0, 0.3)) + geom_abline() + xlab("COXMM heritability in LTM simulations") + ylab("COXMM heritability in real data")+ theme(legend.position = 'bottom') + geom_errorbar(orientation = 'y', width=0.0005) + geom_errorbar(width=0.0005) + geom_label_repel(show.legend = FALSE, size = 3, nudge_x = 0.03, nudge_y=0.02)
+
+extend2b = ggplot(final_tte_real_data[which(final_tte_real_data$Phenotype=="Interval Traits"),], aes(x=H2_CC_sims, y=H2_CC_real, xmin=H2_CC_sims-SE_CC_sims, ymin=H2_CC_real-SE_CC_real, xmax=H2_CC_sims+SE_CC_sims, ymax=H2_CC_real+SE_CC_real, color = `Indexing Event`, label=`Terminal Event`)) + geom_point() + theme_minimal() + coord_cartesian(xlim=c(0.0, 0.4), ylim=c(0.0, 0.4)) + geom_abline() + xlab("Case-Control HE-Reg heritability in TTE simulations") + ylab("Case-Control HE-Reg heritability in real data") + theme(legend.position = 'bottom') + geom_errorbar(orientation = 'y', width=0.0005) + geom_errorbar(width=0.0005) + geom_label_repel(show.legend = FALSE, size = 3, nudge_x = 0.03, nudge_y = -0.03)
+
+extend2 = extend2a + extend2b + plot_annotation(tag_levels = 'A') + plot_layout(guides='collect') & theme(legend.position = 'bottom')
+```
+
+```{r gwas, include = FALSE}
+setwd("~/Desktop/Heritability/ukbb/gwas/noAge/signif/")
+
+loci <- read.delim("~/Desktop/Heritability/ukbb/gwas/ldetect/fourier_ls-all.bed")
+files = list.files()
+
+tte_hits = loci
+cc_hits = loci
+age_hits = loci
+tte_peak = NULL
+cc_peak = NULL
+age_peak = NULL
+total_hits = NULL
+tte_unique = NULL
+orig_traits =  c("Af", "Cad", "DmT2", "Hf", "Ht", "HyperLip", "Mi")                  
+dmt2_traits = c("DmT2_Af_interval", "DmT2_Cad_interval", "DmT2_Hf_interval", "DmT2_Ht_interval", "DmT2_HyperLip_interval", "DmT2_Mi_interval")
+ht_traits = c("Ht_Af_interval", "Ht_Cad_interval", "Ht_DmT2_interval", "Ht_Hf_interval", "Ht_HyperLip_interval", "Ht_Mi_interval")
+hyperlip_traits = c("HyperLip_Af_interval", "HyperLip_Cad_interval", "HyperLip_DmT2_interval", "HyperLip_Hf_interval", "HyperLip_Ht_interval", "HyperLip_Mi_interval")
+no_traits = c("NoHt_Cad", "NoHyperLip_Cad", "NoDmT2_Cad")
+
+higher_h2 = c("DmT2_Af", "DmT2_HyperLip", "DmT2_Mi", "Ht_Af", "Ht_Cad", "Ht_DmT2", "Ht_Hf", "Ht_Mi", "HyperLip_Af", "HyperLip_Cad", "HyperLip_DmT2", "HyperLip_Mi")
+traits = c(orig_traits, dmt2_traits, ht_traits, hyperlip_traits, no_traits)
+interval_traits = c(dmt2_traits, ht_traits, hyperlip_traits)
+
+for(file in files){
+  data = read.table(file, head=T)
+  trait = str_remove(file, "_noAge")
+  trait = str_remove(trait, "_signif.txt")
+  add_tte = 0
+  add_cc = 0
+  add_age = 0
+  unique_tte = 0
+  unique_cc = 0
+  unique_age = 0
+  if(trait %in% no_traits){
+    data["AGE_P"] = 1
+    data["AGE_Z"] = 0
+  }
+  if(trait %in% orig_traits){
+    tte_hits[trait] = 0
+    cc_hits[trait] = 0
+    age_hits[trait] = 0
+    if(dim(data)[1] == 0){
+      total_hits = rbind(total_hits, c(trait, add_tte, add_cc, add_age, unique_tte, unique_cc, unique_age))
+      next
+    }
+    positions = t(data.frame(str_split(data$SNP, ":")))
+    data["trait"] = trait
+    data["chr"] = as.numeric(positions[,1])
+    data["bp"] = as.numeric(positions[,2])
+    data["locus"] = NA
+    for(line in 1:dim(loci)[1]){
+      tte_only = F
+      cc_only = F
+      age_only = F
+      locus = loci[line,]
+      data[which(data$chr==locus$chr & data$bp >= locus$start & data$bp < locus$stop),"locus"] = line
+      temp = data[which(data$chr==locus$chr & data$bp >= locus$start & data$bp < locus$stop),]
+      if(dim(temp)[1] > 0){
+        tte_only = T
+        cc_only = T
+        age_only = T
+        temp_tte = temp[which(temp$TTE_P<5e-8),]
+        if(dim(temp_tte)[1] > 0){
+          add_tte = add_tte + 1
+          cc_only = F
+          age_only = F
+          tte_hits[line, trait] = dim(temp_tte)[1]
+          tte_peak = rbind(tte_peak, temp_tte[which(temp_tte$TTE_P==min(temp_tte$TTE_P)),])
+        }
+    
+        temp_cc = temp[which(temp$CC_P<5e-8),]
+        if(dim(temp_cc)[1] > 0){
+          add_cc = add_cc + 1
+          tte_only = F
+          age_only = F
+          cc_hits[line, trait] = dim(temp_cc)[1]
+          cc_peak = rbind(cc_peak, temp_cc[which(temp_cc$CC_P==min(temp_cc$CC_P)),])
+        }
+
+        temp_age = temp[which(temp$AGE_P<5e-8),]
+        if(dim(temp_age)[1] > 0){
+          add_age = add_age + 1
+          cc_only = F
+          tte_only = F
+          age_hits[line, trait] = dim(temp_age)[1]
+          age_peak = rbind(age_peak, temp_age[which(temp_age$AGE_P==min(temp_age$AGE_P)),])
+        }
+      }
+      
+      if(tte_only){
+        unique_tte = unique_tte + 1
+        tte_unique = rbind(tte_unique, temp_tte[which(temp_tte$TTE_P==min(temp_tte$TTE_P)),])
+      } else if(cc_only){
+        unique_cc = unique_cc + 1
+      } else if (age_only){
+        unique_age = unique_age + 1
+      }
+    }
+        total_hits = rbind(total_hits, c(trait, add_tte, add_cc, add_age, unique_tte, unique_cc, unique_age))
+  } else if (trait %in% traits){
+      tte_hits[trait] = 0
+      cc_hits[trait] = 0
+      age_hits[trait] = 0
+      data = data[which(data$TTE_P<5e-8 | data$CC_P<5e-8),]
+      if(dim(data)[1] == 0){
+        total_hits = rbind(total_hits, c(trait, add_tte, add_cc, add_age, unique_tte, unique_cc, unique_age))
+        next
+      }
+      positions = t(data.frame(str_split(data$SNP, ":")))
+      data["trait"] = trait
+      data["chr"] = as.numeric(positions[,1])
+      data["bp"] = as.numeric(positions[,2])
+      data["locus"] = NA
+      for(line in 1:dim(loci)[1]){
+        tte_only = F
+        cc_only = F
+        locus = loci[line,]
+        data[which(data$chr==locus$chr & data$bp >= locus$start & data$bp < locus$stop),"locus"] = line
+        temp = data[which(data$chr==locus$chr & data$bp >= locus$start & data$bp < locus$stop),]
+        if(dim(temp)[1] > 0){
+          tte_only = T
+          cc_only = T
+          temp_tte = temp[which(temp$TTE_P<5e-8),]
+          if(dim(temp_tte)[1] > 0){
+            add_tte = add_tte + 1
+            cc_only = F
+            tte_hits[line, trait] = dim(temp_tte)[1]
+            tte_peak = rbind(tte_peak, temp_tte[which(temp_tte$TTE_P==min(temp_tte$TTE_P)),])
+          }
+    
+          temp_cc = temp[which(temp$CC_P<5e-8),]
+          if(dim(temp_cc)[1] > 0){
+            add_cc = add_cc + 1
+            tte_only = F
+            cc_hits[line, trait] = dim(temp_cc)[1]
+            cc_peak = rbind(cc_peak, temp_cc[which(temp_cc$CC_P==min(temp_cc$CC_P)),])
+          }
+        }
+      
+        if(tte_only){
+          unique_tte = unique_tte + 1
+          tte_unique = rbind(tte_unique, temp_tte[which(temp_tte$TTE_P==min(temp_tte$TTE_P)),])
+        } else if(cc_only){
+          unique_cc = unique_cc + 1
+        }
+      }
+      total_hits = rbind(total_hits, c(trait, add_tte, add_cc, add_age, unique_tte, unique_cc, unique_age))
+    }
+}
+
+
+cad_traits =  c("Cad", "DmT2_Cad_interval", "Ht_Cad_interval", "HyperLip_Cad_interval", "NoHt_Cad", "NoHyperLip_Cad", "NoDmT2_Cad")
+
+cad_data = NULL
+first = T
+for(file in files){
+  data = read.table(file, head=T)
+  data = subset(data, select = c(SNP, A1, A2, TTE_P))
+  data = data[which(data$TTE_P<5e-8),]
+  if(dim(data)[1] == 0){
+    next
+  }
+  trait = str_remove(file, "_noAge")
+  trait = str_remove(trait, "_signif.txt")
+  if(trait %in% cad_traits){
+    colnames(data)[4:ncol(data)] = paste0(colnames(data)[4:ncol(data)], "_", trait)
+    if(first){
+      first = F
+      cad_data = data
+    } else{
+      cad_data = merge(cad_data, data, by = c("SNP", "A1", "A2"), all =T)
+    }
+  }
+}
+
+positions = t(data.frame(str_split(cad_data$SNP, ":")))
+cad_data["chr"] = as.numeric(positions[,1])
+cad_data["bp"] = as.numeric(positions[,2])
+cad_data["locus"] = NA
+for(line in 1:dim(loci)[1]){
+  locus = loci[line,]
+  cad_data[which(cad_data$chr==locus$chr & cad_data$bp >= locus$start & cad_data$bp < locus$stop),"locus"] = line
+}
+#keep = tte_peak[which(tte_peak$trait %in% interval_traits),"locus"]
+#tte_peak = tte_peak[which(tte_peak$locus %in% keep),]
+#tte_peak = rbind(tte_peak, cc_peak[which(cc_peak$SNP %in% tte_peak$SNP),])
+
+
+#cor.test(secondary[which(secondary$Method=="Case-Control HE-Reg"),"H2_interval"], secondary[which(secondary$Method=="Case-Control HE-Reg"),"H2_original"])
+#cor.test(secondary[which(secondary$Method=="COXMM"),"H2_interval"], secondary[which(secondary$Method=="COXMM"),"H2_original"])
+
+#noage_all_trait$Group = str_remove(noage_all_trait$Group, "Index Event: ")
+#noage_all_trait[which(noage_all_trait$Trait==noage_all_trait$Group),"Group"] = "Birth"
+
+#af = ggplot(noage_all_trait[which(noage_all_trait$Event == "Atrial Fibrillation" & noage_all_trait$Method!="Age-of-Onset HE-Reg"),], aes(x=Group, y = H2, ymin = H2 - SE, ymax = H2 + SE, fill = Method)) + geom_bar(stat='identity', position = position_dodge(0.9)) + geom_errorbar(position = position_dodge(0.9)) + theme_minimal() + scale_fill_manual(values=methods_colors) + ggtitle("Secondary Event: Atrial Fibrillation") + labs(x="Index Event", y = "Heritability")
+
+#secondary = noage_interval_trait[,c(8:9,2,4:5)]
+#secondary = merge(secondary, noage_original_trait[,c(9,2,4:5)], by = c("Event", "Method"), suffixes = c("_interval", "_original"))
+
+#Af_signif <- read.delim("~/Desktop/Heritability/ukbb/gwas/noAge/signif/Af_noAge_signif.txt")
+#Cad_signif <- read.delim("~/Desktop/Heritability/ukbb/gwas/noAge/signif/Cad_noAge_signif.txt")
+#Hyperlip_signif <- read.delim("~/Desktop/Heritability/ukbb/gwas/noAge/signif/Hyperlip_noAge_signif.txt")
+#Mi_signif <- read.delim("~/Desktop/Heritability/ukbb/gwas/noAge/signif/Mi_noAge_signif.txt")
+#Diabetes_signif <- read.delim("~/Desktop/Heritability/ukbb/gwas/noAge/signif/DmT2_noAge_signif.txt")
+
+#afib = unique(c("1:154814353", "1:170193825", "10:105332452", "10:75422314", 
+#    "10:75422314", "10:75428296", "10:75428296", "12:114789810", "12:114792236",
+#    "12:24779491", "15:73662855", "16:2003016",  "16:73048367", "2:179562140", 
+#    "4:111608777", "4:111613773", "5:137406733", "6:149399100", "6:149399100", 
+#    "7:116186241", "8:124365166"))
+#Af_match = Af_signif[which(Af_signif$SNP %in% afib),]
+#print("Afib")
+#print(paste(length(afib), dim(Af_match)[1]))
+
+#cad = unique(c("14:99846962", "6:161010118", "6:161010118", "9:22124123", "9:22125347", "9:22125347"))
+#Cad_match = Cad_signif[which(Cad_signif$SNP %in% cad),]
+#print("Cad")
+#print(paste(length(cad), dim(Cad_match)[1]))
+
+#hyperlip = unique(c("1:109817590", "1:55505647", "1:62923858", "11:116648917", "19:11191197",
+#    "19:19379549", "19:45412079", "2:21383353", "2:27839369", "2:27839539", "2:44072576",
+#    "5:156380067", "5:74656539", "6:161005610", "8:126476873", "8:19822810", "9:136155000"))
+#Hyperlip_match = Hyperlip_signif[which(Hyperlip_signif$SNP %in% hyperlip),]
+#print("Hyperlip")
+#print(paste(length(hyperlip), dim(Hyperlip_match)[1]))
+
+#mi = unique(c("6:12891301", "6:160985526", "6:161010118", "9:22124472"))
+#Mi_match = Mi_signif[which(Mi_signif$SNP %in% mi),]
+#print("Mi")
+#print(paste(length(mi), dim(Mi_match)[1]))
+
+#diabetes = unique(c("10:114758349", "10:114758349", "10:94466495", "11:2838413", 
+#    "11:2847069", "16:53830491", "19:45411941", "19:45411941", "3:123001494", 
+#    "3:123054770", "5:75038718", "6:20673880", "6:20686573", "8:118185025", 
+#    "8:118185025", "9:136143000", "9:22132698", "9:22134068"))
+#Diabetes_match = Diabetes_signif[which(Diabetes_signif$SNP %in% diabetes),]
+#print("Diabetes")
+#print(paste(length(diabetes), dim(Diabetes_match)[1]))
+```
+
+```{r, kaplan_meier, echo = F}
+grid.draw.ggsurvplot <- function(x){
+  survminer:::print.ggsurvplot(x, newpage = FALSE)
+}
+
+Ht_DmT2 <- read.delim("~/Desktop/Heritability/ukbb/gwas/Ht_DmT2_interval.txt")
+rs543040 <- read.csv("~/Desktop/Heritability/ukbb/gwas/rs543040.raw", sep="")
+rs543040 = rs543040[,c(1,7)]
+colnames(rs543040) = c('sample_id', 'rs543040')
+Ht_DmT2 = merge(Ht_DmT2, rs543040, by = 'sample_id')
+
+fit_ht_dmt2_rs543040 <- survfit(Surv(stop, event) ~ rs543040, data = Ht_DmT2)
+fig7a = ggsurvplot(
+  fit_ht_dmt2_rs543040, data = Ht_DmT2, censor = FALSE, conf.int = TRUE,
+  risk.table = TRUE, xlab = "Years", ylab = "Survival probability",
+  title = 'A. Progression from hypertension to type 2 diabetes ~ rs543040'
+)
+
+Ht_Cad <- read.delim("~/Desktop/Heritability/ukbb/gwas/Ht_Cad_interval.txt")
+rs2754066 <- read.csv("~/Desktop/Heritability/ukbb/gwas/rs2754066.raw", sep="")
+rs2754066 = rs2754066[,c(1,7)]
+colnames(rs2754066) = c('sample_id', 'rs2754066')
+Ht_Cad = merge(Ht_Cad, rs2754066, by = 'sample_id')
+
+fit_ht_cad_rs2754066 <- survfit(Surv(stop, event) ~ rs2754066, data = Ht_Cad)
+fig7b = ggsurvplot(
+  fit_ht_cad_rs2754066, data = Ht_Cad, censor = FALSE, conf.int = TRUE,
+  risk.table = TRUE, xlab = "Years", ylab = "Survival probability",
+  title = 'B. Progression from hypertension to coronary artery disease ~ rs2754066'
+)
+```
+
+```{r last_supp, include=FALSE}
+concord_data <- read.delim("~/Desktop/Heritability/sims/concord_data.txt")
+concord_data = concord_data[which(concord_data$sigma_g2<=0.8 & concord_data$K %in% c(0.05, 0.2, 0.4)),]
+concord_data = subset(concord_data, select = -c(beta_tte, se_tte))
+write.table(concord_data, "~/Desktop/Heritability/tables_figures/SuppTable_Pseudo.csv", col.names = T, row.names=F, quote=F, sep = ',')
+
+neworg = rbind(concord_data, concord_data)
+neworg["Definition"] = c(rep('Variance Component', dim(concord_data)[1]), rep('Heritability', dim(concord_data)[1]))
+neworg["Numeric"] = c(concord_data$sigma_g2, concord_data$h2)
+#D
+cor.test(neworg$d[which(neworg$Definition!="Variance Component")], 
+         neworg$h2[which(neworg$Definition!="Variance Component")])
+cor.test(neworg$d[which(neworg$Definition=="Variance Component")], 
+         neworg$sigma_g2[which(neworg$Definition=="Variance Component")])
+label1 <- "Heritability Correlation = 1.00\nVariance Component Correlation = 0.99"
+
+lm(neworg$d~neworg$h2)
+lm(neworg$d~neworg$sigma_g2)
+d_plot = ggplot(neworg, aes(x=Numeric, y=d, ymin = d - d_se, 
+                                  ymax = d + d_se, color = Definition, shape = factor(K))) + 
+  geom_point() + geom_errorbar() + geom_line() + theme_minimal() + ylab("D-statistic") + xlab(TeX("$\\sigma_g^2$ or $h^2$")) + 
+  labs(shape = 'Observed Events/Cases') + geom_abline(intercept = 0.3455, slope =3.3308) + geom_abline(intercept = 0.4577, slope = 1.2696) +
+  annotate("text", x = 0.67, y = 0.7, label = label1, size = 2.5) + scale_color_discrete(labels = unname(TeX(c("$h^2$", "$\\sigma_g^2$"))))
+
+
+#Concordance
+cor.test(neworg$concord[which(neworg$Definition!="Variance Component")], 
+         neworg$h2[which(neworg$Definition!="Variance Component")])
+cor.test(neworg$concord[which(neworg$Definition=="Variance Component")], 
+         neworg$sigma_g2[which(neworg$Definition=="Variance Component")])
+label1 <- "Heritability Correlation = 0.99\nVariance Component Correlation = 0.98"
+
+lm(neworg$concord~neworg$h2)
+lm(neworg$concord~neworg$sigma_g2)
+concord_plot = ggplot(neworg, aes(x=Numeric, y=concord, ymin = concord - concord_se, 
+                                  ymax = concord + concord_se, color = Definition, shape = factor(K))) + 
+  geom_point() + geom_errorbar() + geom_line() + theme_minimal() + ylab("Concordance") + xlab(TeX("$\\sigma_g^2$ or $h^2$")) + 
+  labs(shape = 'Observed Events/Cases') + geom_abline(intercept = 0.5841, slope = 0.1901) + geom_abline(intercept = 0.5669, slope = 0.5007) +
+  annotate("text", x = 0.67, y = 0.615, label = label1, size = 2.5) + scale_color_discrete(labels = unname(TeX(c("$h^2$", "$\\sigma_g^2$"))))
+
+#R2_KO
+cor.test(neworg$r2_ko[which(neworg$Definition!="Variance Component")], 
+         neworg$h2[which(neworg$Definition!="Variance Component")])
+
+cor.test(neworg$r2_ko[which(neworg$Definition=="Variance Component")], 
+         neworg$sigma_g2[which(neworg$Definition=="Variance Component")])
+label1 <- "Heritability Correlation = 1.00\nVariance Component Correlation = 0.99"
+
+lm(neworg$r2_ko~neworg$h2)
+lm(neworg$r2_ko~neworg$sigma_g2)
+r2ko_plot = ggplot(neworg, aes(x=Numeric, y=r2_ko, ymin = r2_ko - r2_ko_se, 
+                                  ymax = r2_ko + r2_ko_se, color = Definition, shape = factor(K))) + 
+  geom_point() + geom_errorbar() + geom_line() + theme_minimal() + ylab(TeX("Pseudo-$R^2_{KO}$")) + xlab(TeX("$\\sigma_g^2$ or $h^2$")) + 
+  labs(shape = 'Observed Events/Cases') + geom_abline(intercept = 0.002584, slope = 0.987901) + geom_abline(intercept = 0.03522, slope = 0.37797) +
+  annotate("text", x = 0.73, y = 0.075, label = label1, size = 2.5) + scale_color_discrete(labels = unname(TeX(c("$h^2$", "$\\sigma_g^2$"))))
+
+#R_N
+cor.test(neworg$r2_n[which(neworg$Definition!="Variance Component")], 
+         neworg$h2[which(neworg$Definition!="Variance Component")])
+cor.test(neworg$r2_n[which(neworg$Definition=="Variance Component")], 
+         neworg$sigma_g2[which(neworg$Definition=="Variance Component")])
+label1 <- "Heritability Correlation = 0.64\nVariance Component Correlation = 0.64"
+
+lm(neworg$r2_n~neworg$h2)
+lm(neworg$r2_n~neworg$sigma_g2)
+r2n_plot = ggplot(neworg, aes(x=Numeric, y=r2_n, ymin = r2_n - r2_n_se, 
+                               ymax = r2_n + r2_n_se, color = Definition, shape = factor(K))) + 
+  geom_point() + geom_errorbar() + geom_line() + theme_minimal() + ylab(TeX("Pseudo-$R^2_{N}$")) + xlab(TeX("$\\sigma_g^2$ or $h^2$")) + 
+  labs(shape = 'Observed Events/Cases') + geom_abline(intercept = -0.005229, slope = 0.449155) + geom_abline(intercept = 0.009321, slope = 0.172489) +
+  annotate("text", x = 0.73, y = 0.02, label = label1, size = 2.5) + scale_color_discrete(labels = unname(TeX(c("$h^2$", "$\\sigma_g^2$"))))
+
+supp_pseudo = (r2ko_plot + r2n_plot)/(concord_plot + d_plot) + plot_annotation(tag_levels = 'A') + plot_layout(guides = 'collect') & theme(legend.position = 'bottom')
+
+```
+
+```{r final_fig2, echo = F}
+
+fig2c = ggplot(neworg[which(neworg$Definition=="Heritability"),], aes(x=Numeric, y=r2_ko, ymin = r2_ko - r2_ko_se, 
+                                  ymax = r2_ko + r2_ko_se, color = factor(K))) + 
+  geom_point() + geom_errorbar() + geom_line() + theme_minimal() + ylab(TeX("Pseudo-$R^2_{KO}$")) + xlab(TeX("True $h_g^2$")) + scale_color_manual(values = c("darkorange", "#52854C", "navy")) + all_theme +
+  labs(color = 'Proportion ofEvents/Cases (K):') + geom_abline(intercept = 0.002584, slope = 0.987901) + guides(color = 'none')
+
+design <- "
+1112222
+1112222
+3332222
+3332222
+"
+fig2 = ((fig2a + fig2b + fig2c) + plot_annotation(tag_levels = 'A') + plot_layout(design = design, guides = 'collect')) & theme(legend.position = 'bottom')
+```
+
+# Paper Figures
+## Figure 2
+```{r plot1, echo=F, fig.width=14, fig.height=8}
+fig2
+ggsave("~/Desktop/Heritability/tables_figures/Fig2/Fig2.png", plot = fig2, width = 3200, height = 2000, units = "px", dpi = 300)
+```
+
+## Figure 3
+```{r plot2, echo=F, fig.width=8, fig.height=12}
+fig3
+ggsave("~/Desktop/Heritability/tables_figures/Fig3/Fig3.png", plot = fig3, width = 2400, height = 2800, units = "px", dpi = 300)
+```
+
+## Figure 4
+```{r plot3, echo=F, fig.width=14, fig.height=8}
+fig4
+ggsave("~/Desktop/Heritability/tables_figures/Fig4/Fig4.png", plot = fig4, width = 4800, height = 3200, units = "px", dpi = 300)
+```
+
+## Figure 5
+```{r plot4, echo=F, fig.width=14, fig.height=8}
+fig5
+ggsave("~/Desktop/Heritability/tables_figures/Fig5/Fig5.png", plot = fig5, width = 4200, height = 2100, units = "px", dpi = 300)
+```
+
+## Figure 6
+```{r plot5, echo=F, fig.width=14, fig.height=8}
+fig6
+ggsave("~/Desktop/Heritability/tables_figures/Fig6/Fig6.png", plot = fig6, width = 4800, height = 3200, units = "px", dpi = 300)
+```
+
+## Figure 7A
+```{r plot6, echo=F, fig.width=14, fig.height=8}
+fig7a
+ggsave("~/Desktop/Heritability/tables_figures/Fig7/Fig7a.png", plot = fig7a, width = 2400, height = 2400, units = "px", dpi = 300)
+```
+
+## Figure 7B
+```{r plot7, echo=F, fig.width=14, fig.height=8}
+fig7b
+ggsave("~/Desktop/Heritability/tables_figures/Fig7/Fig7b.png", plot = fig7b, width = 2400, height = 2400, units = "px", dpi = 300)
+```
+
+## Figure 7
+```{r plot8_setup, include=F, fig.width=14, fig.height=8}
+fig7a = fig7a$plot + coord_cartesian(xlim=c(10,60), ylim=c(0.5,1))
+fig7b = fig7b$plot + coord_cartesian(xlim=c(10,60), ylim=c(0.5,1))
+fig7 = fig7a + fig7b
+```
+
+```{r plot8, echo=F, fig.width=14, fig.height=8}
+fig7
+ggsave("~/Desktop/Heritability/tables_figures/Fig7/Fig7.png", plot = fig7, width = 2800, height = 2400, units = "px", dpi = 300)
+```
+## Extended Figure 1
+```{r plot9, echo=F, fig.width=8, fig.height=12}
+extend1
+ggsave("~/Desktop/Heritability/tables_figures/SuppFig1/SuppFig1.png", plot = supp_pseudo, width = 2400, height = 2400, units = "px", dpi = 300)
+```
+
+## Extended Figure 2
+```{r plot10, echo=F, fig.width=8, fig.height=12}
+extend1
+ggsave("~/Desktop/Heritability/tables_figures/SuppFig2/SuppFig2.png", plot = extend1, width = 2400, height = 2800, units = "px", dpi = 300)
+```
+
+## Extended Figure 3
+```{r plot11, echo =F, fig.width=8, fig.height=12}
+extend2
+ggsave("~/Desktop/Heritability/tables_figures/SuppFig3/SuppFig3.png", plot = extend2, width = 2800, height = 2100, units = "px", dpi = 300)
+```
+
+## Extended Figure 4
+```{r plot12, echo =F, fig.width=14, fig.height=9}
+extend3
+ggsave("~/Desktop/Heritability/tables_figures/SuppFig4/SuppFig4.png", plot = extend3, width = 4200, height = 2100, units = "px", dpi = 300)
+```
+
+## Extended Figure 5
+```{r plot13, echo =F, fig.width=12, fig.height=8}
+extend4
+ggsave("~/Desktop/Heritability/tables_figures/SuppFig5/SuppFig5.png", plot = extend4, width = 4200, height = 2100, units = "px", dpi = 300)
+```
