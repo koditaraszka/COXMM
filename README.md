@@ -13,6 +13,10 @@ While we provide the standard error directly computed from the second derivative
 The following packages will need to be installed:
 `logging, argparse, numpy, pandas, pandas_plink, os, pybobyqa, scipy`
 
+
+## Running COXMM
+To list off the arguments and run the method run:
+`python coxmm.py -h`
 ## Arguments
 
 ### Required Arguments
