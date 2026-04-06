@@ -128,5 +128,5 @@ To create the final output run:
 `Rscript scripts/cal_standerr.R example/tte_idealsim.txt`
 
 which gives the following output:
-  source h2 h2_var sigma2g sigma2g_var
-  example/tte_idealsim.txt 0.212 0.00023 0.441 0.00159 
+  `source h2 h2_var sigma2g sigma2g_var
+  example/tte_idealsim.txt 0.212 0.00023 0.441 0.00159` 
