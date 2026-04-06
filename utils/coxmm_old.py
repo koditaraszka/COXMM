@@ -12,7 +12,7 @@ import pandas as pd
 import pybobyqa
 from scipy.stats import norm
 #from pandas_plink import read_plink
-from coxmm_input_old import IO
+from utils.coxmm_input_old import IO
 
 class COXMM(IO):
 

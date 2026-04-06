@@ -15,22 +15,16 @@ import numpy as np
 import pandas as pd
 import pybobyqa
 from scipy.stats import norm
-# TODO: remove dead code
-#from pandas_plink import read_plink
-from coxmm_input import COXMM_IO
+from utils.coxmm_input import COXMM_IO
 
 logger = logging.getLogger(__name__)
 
 class COXMM(COXMM_IO):
 	"""Cox proportional hazard mixed model.
-
 		Inherits all I/O and data-loading from COXMM_IO. Call fit() after
 		Call fit() to run optimization/estimate heritability
-		Can run a GWAS but not recommended -- use SPACox or GATE		
 
 	Attributes:
-		results (pd.DataFrame or None): GWAS results, one row per SNP.
-			None until _fit_gwas() is called.
 		theta (np.ndarray): Parameter vector [beta (M,), u (N,)] where beta
 			are fixed-effect coefficients and u are random effects.
 		exp_eta (np.ndarray or None): exp(X*beta + u), shape (N,).
@@ -49,7 +43,6 @@ class COXMM(COXMM_IO):
 	def __init__(self):
 		super().__init__()
 		# From COXMM_IO, we have N, M, grm, times, events, fixed, output
-		self.results = None  # populated by _fit_gwas(); None in heritability mode
 		self.theta = np.zeros(self.N+self.M)
 		self.update = np.zeros(self.N+self.M)
 		self.exp_eta = None  # set by l_1() before first read
@@ -71,13 +64,8 @@ class COXMM(COXMM_IO):
 
 	def fit(self):
 		"""Run the model: estimate heritability (tau)
-						can run GWAS -- but it really shouldn't be used (use SPACox/GATE/etc)
-
 				Heritability -- optimizes the Laplace-approximated marginal log-likelihood over sigma2g/tau via BOBYQA
 						writes results to the output file, and returns a dict with the estimates.
-
-				GWAS -- (if you ignore all warnings) iterates over SNPs and estimates SNP effect for fixed sigma2g/tau
-						writes a results CSV and returns the results DataFrame.
 
 		Returns:
 			dict: In heritability mode (no --joint_jackknife):
@@ -91,8 +79,6 @@ class COXMM(COXMM_IO):
 				}
 			list[dict]: In joint jackknife mode (--joint_jackknife) — one dict
 				per run (original + all replicates) in the same format as above.
-			pd.DataFrame: In GWAS mode — one row per SNP with columns
-				snp, chrom, pos, a0, a1, maf, geno, n, beta, se, pval.
 
 		Side effects:
 			Writes results to self.output. 
@@ -100,12 +86,10 @@ class COXMM(COXMM_IO):
 				'original' for a full-sample run,
 				'jackknife_k' when --jackknife or --joint_jackknife is used.
 		"""
-		if self.gwas is None:
-			if self.joint_jackknife is not None:
-				return self._fit_heritability_joint_jackknife()
-			return self._fit_heritability(type_label=self.jackknife_type_label)
+		if self.joint_jackknife is not None:
+			return self._fit_heritability_joint_jackknife()
 		else:
-			return self._fit_gwas()
+			return self._fit_heritability(type_label=self.jackknife_type_label)
 
 	def _fit_heritability(self, type_label='original', write_header=True):
 		"""Estimate sigma2g/tau by maximising the Laplace marginal log-likelihood.
@@ -169,7 +153,6 @@ class COXMM(COXMM_IO):
 		All results are written to self.output: one header row followed by one
 		data row per run (original + n_splits jackknife replicates), each with
 		a 'type' column ('original', 'jackknife_1', ..., 'jackknife_n').
-		TODO: compute the std error estimate internally (currently done externally/afterwards)
 
 		Returns:
 			list[dict]: One dict per run in the same format as _fit_heritability,
@@ -198,85 +181,8 @@ class COXMM(COXMM_IO):
 
 		return results
 
-	def _fit_gwas(self):
-		"""Fit the model at fixed tau for every SNP in the plink file.
-
-		Returns:
-			pd.DataFrame: One row per SNP with columns
-				snp, chrom, pos, a0, a1, maf, geno, n, beta, se, pval.
-		"""
-		(bim, fam, bed) = read_plink(self.plink, verbose=False)
-		fam = fam.rename(columns={'fid': 'sample_id'})
-		fam = fam.set_index('sample_id')
-		fam.index = fam.index.astype('str')
-		fam = fam.reindex(index=self.names)
-		missing = fam[fam['iid'].isna()]
-		if missing.shape[0] > 0:
-			raise ValueError("There are phenotyped individuals who are not genotyped")
-		self.results = bim[['snp', 'chrom', 'pos', 'a0', 'a1']].copy()
-		self.results["maf"] = np.nan
-		self.results["geno"] = np.nan
-		self.results["n"] = np.nan
-		self.results["beta"] = np.nan
-		self.results["se"] = np.nan
-		self.results["pval"] = np.nan
-		orig_grm = self.grm.copy()
-		if self.fixed is not None:
-			orig_fixed = self.fixed.copy()
-		orig_events = self.events.copy()
-		orig_times = self.times.copy()
-		orig_n = self.N
-		for index in range(0, bed.shape[0]):
-			# 10 is small but if you're doing a lot of SNP... why?!
-			if index % 10:
-				logger.info(f"Now at SNP {index}")
-			self.fixed = orig_fixed.copy()
-			self.grm = orig_grm.copy()
-			self.events = orig_events.copy()
-			self.times = orig_times.copy()
-			self.N = orig_n
-			snp = np.asarray(bed[index,])
-			self.fixed[:,0] = snp[fam.i.to_numpy()]
-			missing = np.argwhere(np.isnan(self.fixed[:,0])).flatten()
-			if missing.shape[0] > 0:
-				geno = missing.shape[0]/self.N
-				self.fixed = np.delete(self.fixed, missing, axis=0)
-				self.grm = np.delete(orig_grm, missing, axis=0)
-				self.grm = np.delete(self.grm, missing, axis=1)
-				self.events = np.delete(orig_events, missing)
-				self.times = np.delete(orig_times, missing, axis=0)
-			else:
-				geno = 0
-
-			mean = np.mean(self.fixed[:, 0])
-			if (mean / 2 > 0.5):
-				self.fixed[:,0][self.fixed[:,0] == 0] = 3
-				self.fixed[:,0][self.fixed[:,0] == 2] = 0
-				self.fixed[:,0][self.fixed[:,0] == 3] = 2
-				mean = np.mean(self.fixed[:, 0])
-				a1 = self.results.loc[index, "a1"]
-				self.results.loc[index, "a1"] = self.results.loc[index, "a0"]
-				self.results.loc[index, "a0"] = a1
-
-			stderr = np.std(self.fixed[:, 0])
-			self.reset()
-			if self.center:
-				self.fixed[:,0] = (self.fixed[:,0] - mean)/stderr
-			likelihood = self.marg_loglike(self.gwas)
-			V = np.linalg.inv(self.V)
-			self.results.loc[index, "maf"] = round(mean/2, 3)
-			self.results.loc[index, "geno"] = round(geno, 3)
-			self.results.loc[index, "n"] = self.N
-			self.results.loc[index, "beta"] = self.theta[0]
-			self.results.loc[index, "se"] = np.sqrt(V[0,0])
-			self.results.loc[index, "pval"] = norm.sf(abs(self.theta[0]/np.sqrt(V[0,0])))*2
-		self.results.to_csv(self.output, index=False, sep=' ')
-		return self.results
-
 	def reset(self):
 		"""Re-initialise all working arrays after the GRM or event data changes.
-
-		Called once per SNP in GWAS mode after missingness subsetting.
 		"""
 		self.N = self.grm.shape[0]
 		self.theta = np.zeros(self.N+self.M)
