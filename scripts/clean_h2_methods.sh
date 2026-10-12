@@ -38,7 +38,7 @@ Rscript run_coxmeg.R sims/${pref}_grm.txt \
     sims/${sims}_outcome${num}.txt 1> coxmeg/${sims}_result${num}.txt
 
 # when running LDAK on real data, we need to adjust the GRM for each randomly sampled grouping of cohort:
-./$ldak \
+./ldak \
    --adjust-grm ${covars}/group${num}.covar_noage \
    --grm ${covars}/group${num} \
    --covar ${covars}/gcta_noAge.txt #gcta.txt includes age-at-enrollment covariate
