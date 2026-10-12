@@ -37,8 +37,14 @@ module load R/4.3.0
 Rscript run_coxmeg.R sims/${pref}_grm.txt \
     sims/${sims}_outcome${num}.txt 1> coxmeg/${sims}_result${num}.txt
 
+# when running LDAK on real data, we need to adjust the GRM for each randomly sampled grouping of cohort:
+./$ldak \
+   --adjust-grm ${covars}/group${num}.covar_noage \
+   --grm ${covars}/group${num} \
+   --covar ${covars}/gcta_noAge.txt #gcta.txt includes age-at-enrollment covariate
+
 # Running LDAK case-control
-$ldak --pheno sims/${sims}_outcome${num}_cc.txt \
+./ldak --pheno sims/${sims}_outcome${num}_cc.txt \
    --prevalence 0.2 \
    --grm sims/${pref}_ldak
    --kinship-details NO \
