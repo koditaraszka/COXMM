@@ -191,16 +191,16 @@ for(N in c(5000, 10000, 15000, 20000)){
       } 
       # set to 20% observed events, this is a flip from other scenarios
       # legacy weirdness that I own :)
-      cenRate=0.2
-      K=cenRate*100
       # EA SIMULATION (environment accumulation)
       E_variance = 0.5
       E = sqrt(E_variance) * rnorm(N)
       noise_variance <- 1 - h2 - E_variance
       noise <- sqrt(noise_variance) * rnorm(N)
       z = EA_sims((l_g+E+noise), 0.02, 0.05, N)
-      write_output(z, '', paste0("EA_K", K), run, TRUE)
+      write_output(z, '', paste0("EA_K", 10), run, TRUE)
 
+	  cenRate=0.2
+	  K=cenRate*100
       shape=3
       z=weibull_sims(shape, l_g, cenRate)
       write_output(z, shape, paste0('weibull_K',K), run, TRUE)
