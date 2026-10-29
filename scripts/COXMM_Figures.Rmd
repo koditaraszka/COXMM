@@ -17,6 +17,7 @@ library(metafor)
 library(ggrepel)
 library(survival)
 library(survminer)
+library(fastman)
 # general figure set-up
 opts_chunk$set(dpi=300)
 #"COXMM (Interval)" = "darkred", 
@@ -265,19 +266,56 @@ withage$P = as.numeric(withage$P)
 age_traits <- read.csv("~/Desktop/Heritability/ukbb/h2/intermediate/age_her.txt", sep="")
 age_traits$Her = round(age_traits$Her, 5)
 age_data = NULL
-for(trait in unique(age_traits$Trait)){
+traits = c("Af", "Cad", "Hf", "HyperLip", "Ht", "Mi", "DmT2")
+names = c("Atrial Fibrillation", "Coronary Artery Disease", "Heart Failure", "Hyperlipidemia", "Hypertension", "Myocardial Infarction", "Type 2 Diabetes")
+png("~/Desktop/Heritability/tables_figures/SuppForest/age_of_onset_cardio_forest_plots.png", width = 3600, height = 3600, res = 300)
+par(mfrow = c(3, 3))
+for(num in 1:length(traits)){
+    trait = traits[num]
+    name = names[num]
     age_temp = age_traits[which(age_traits$Trait==trait & age_traits$Type=="AGE"),]
-    temp = rma(yi=Her, sei=SE, method="FE", data=age_temp) 
+    age_temp["Cohort"] = str_remove(age_temp$Group, "group")
+    age_temp = age_temp[order(as.numeric(age_temp$Cohort)),]
+    age_temp$Cohort = paste("Cohort", age_temp$Cohort)
+    temp = rma(yi=Her, sei=SE, method="FE", data=age_temp)
+    print(temp$I2)
+    xlab_expr <- as.expression(bquote(Heritability ~ "(" ~ I^2 ~ ":" ~ .(round(temp$I2, 2)) ~ "%)"))
+    forest(temp, slab = age_temp$Cohort, xlim = c(-0.5, 1), alim = c(-0.25, 1), xlab = xlab_expr, header = paste0(name, ": Age-of-Onset HE-Reg")) 
     age_data = rbind(age_data, c(trait, "Age-of-Onset HE-Reg", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
 }
+dev.off()
 
+traits = c("Ht_age45", "Ht_age50", "Ht_age55", "Ht_age60", "Ht_age65", "Ht_age70", "Ht_age75")
+for(num in 1:length(traits)){
+    trait = traits[num]
+    age_temp = age_traits[which(age_traits$Trait==trait & age_traits$Type=="AGE"),]
+    temp = rma(yi=Her, sei=SE, method="FE", data=age_temp)
+    #print(temp$I2)
+    age_data = rbind(age_data, c(trait, "Age-of-Onset HE-Reg", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
+}
+```
+
+```{r cc_traits, include = FALSE}
 cc_traits <- read.csv("~/Desktop/Heritability/ukbb/h2/intermediate/cc_her.txt", sep="")
 cc_traits$Her = round(cc_traits$Her, 5)
 cc_traits = cc_traits[-which(cc_traits$Trait=='glasses'),]
 cc_data = NULL
-for(trait in unique(cc_traits$Trait)){
+
+traits = c("Af", "Cad", "Hf", "HyperLip", "Ht", "Mi", "DmT2")
+names = c("Atrial Fibrillation", "Coronary Artery Disease", "Heart Failure", "Hyperlipidemia", "Hypertension", "Myocardial Infarction", "Type 2 Diabetes")
+png("~/Desktop/Heritability/tables_figures/SuppForest/casecontrol_cardio_forest_plots.png", width = 3600, height = 3600, res = 300)
+par(mfrow = c(3, 3))
+for(num in 1:length(traits)){
+    trait = traits[num]
+    name = names[num]
     cc_temp = cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="CaseControl"),]
-    temp = rma(yi=Her, sei=SE, method="FE", data=cc_temp) 
+    cc_temp["Cohort"] = str_remove(cc_temp$Group, "group")
+    cc_temp = cc_temp[order(as.numeric(cc_temp$Cohort)),]
+    cc_temp$Cohort = paste("Cohort", cc_temp$Cohort)
+    temp = rma(yi=Her, sei=SE, method="FE", data=cc_temp)
+    print(temp$I2)
+    xlab_expr <- as.expression(bquote(Heritability ~ "(" ~ I^2 ~ ":" ~ .(round(temp$I2, 2)) ~ "%)"))
+    forest(temp, slab = cc_temp$Cohort, xlim = c(-0.5, 1), alim = c(-0.25, 1), xlab = xlab_expr, header = paste0(name, ": Case-Control HE-Reg")) 
     cc_data = rbind(cc_data, c(trait, "Case-Control HE-Reg", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
     if(dim(cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="PopPrev"),])[1] > 0){
       cc_temp = cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="PopPrev"),]
@@ -285,7 +323,127 @@ for(trait in unique(cc_traits$Trait)){
       cc_data = rbind(cc_data, c(trait, "PopPrev", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
     }
 }
+dev.off()
 
+traits = c("arthritis", "asthma", "copd", "death", "dementia","depression", "hayfever", "hypothyroidism", "stroke")
+names = c("Arthritis", "Asthma", "COPD", "Death", "Dementia", "Depression", "Hayfever", "Hypothyroidism", "Stroke")
+png("~/Desktop/Heritability/tables_figures/SuppForest/casecontrol_addtraits_forest_plots.png", width = 3600, height = 3600, res = 300)
+par(mfrow = c(3, 3))
+for(num in 1:length(traits)){
+    trait = traits[num]
+    name = names[num]
+    cc_temp = cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="CaseControl"),]
+    cc_temp["Cohort"] = str_remove(cc_temp$Group, "group")
+    cc_temp = cc_temp[order(as.numeric(cc_temp$Cohort)),]
+    cc_temp$Cohort = paste("Cohort", cc_temp$Cohort)
+    temp = rma(yi=Her, sei=SE, method="FE", data=cc_temp)
+    #print(temp$I2)
+    xlab_expr <- as.expression(bquote(Heritability ~ "(" ~ I^2 ~ ":" ~ .(round(temp$I2, 2)) ~ "%)"))
+    forest(temp, slab = cc_temp$Cohort, xlim = c(-0.5, 1), alim = c(-0.25, 1), xlab = xlab_expr, header = paste0(name, ": Case-Control HE-Reg")) 
+    cc_data = rbind(cc_data, c(trait, "Case-Control HE-Reg", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
+    if(dim(cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="PopPrev"),])[1] > 0){
+      cc_temp = cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="PopPrev"),]
+      temp = rma(yi=Her, sei=SE, method="FE", data=cc_temp) 
+      cc_data = rbind(cc_data, c(trait, "PopPrev", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
+    }
+}
+dev.off()
+
+traits = c("DmT2_Af","DmT2_Cad", "DmT2_Hf", "DmT2_HyperLip", "DmT2_Ht", "DmT2_Mi")
+names = c("Type 2 Diabetes -> Atrial Fibrillation", "Type 2 Diabetes -> Coronary Artery Disease", "Type 2 Diabetes -> Heart Failure",
+          "Type 2 Diabetes -> Hyperlipidemia", "Type 2 Diabetes -> Hypertension", "Type 2 Diabetes -> Myocardial Infarction")
+png("~/Desktop/Heritability/tables_figures/SuppForest/casecontrol_type2diabetes_forest_plots.png", width = 3600, height = 2400, res = 300)
+par(mfrow = c(2, 3))
+for(num in 1:length(traits)){
+    trait = traits[num]
+    name = names[num]
+    cc_temp = cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="CaseControl"),]
+    cc_temp["Cohort"] = str_remove(cc_temp$Group, "group")
+    cc_temp = cc_temp[order(as.numeric(cc_temp$Cohort)),]
+    cc_temp$Cohort = paste("Cohort", cc_temp$Cohort)
+    temp = rma(yi=Her, sei=SE, method="FE", data=cc_temp)
+    #print(temp$I2)
+    xlab_expr <- as.expression(bquote(Heritability ~ "(" ~ I^2 ~ ":" ~ .(round(temp$I2, 2)) ~ "%)"))
+    forest(temp, slab = cc_temp$Cohort, xlim = c(-0.5, 1), alim = c(-0.25, 1), xlab = xlab_expr, header = paste0(name, ": Case-Control HE-Reg")) 
+    cc_data = rbind(cc_data, c(trait, "Case-Control HE-Reg", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
+    if(dim(cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="PopPrev"),])[1] > 0){
+      cc_temp = cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="PopPrev"),]
+      temp = rma(yi=Her, sei=SE, method="FE", data=cc_temp) 
+      cc_data = rbind(cc_data, c(trait, "PopPrev", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
+    }
+}
+dev.off()
+
+traits = c("Ht_Af", "Ht_Cad", "Ht_Hf", "Ht_HyperLip","Ht_Mi", "Ht_DmT2")
+names = c("Hypertension -> Atrial Fibrillation", "Hypertension -> Coronary Artery Disease", "Hypertension -> Heart Failure",
+          "Hypertension -> Hyperlipidemia", "Hypertension -> Myocardial Infarction", "Hypertension -> Type 2 Diabetes")
+png("~/Desktop/Heritability/tables_figures/SuppForest/casecontrol_hypertension_forest_plots.png", width = 3600, height = 2400, res = 300)
+par(mfrow = c(2, 3))
+for(num in 1:length(traits)){
+    trait = traits[num]
+    name = names[num]
+    cc_temp = cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="CaseControl"),]
+    cc_temp["Cohort"] = str_remove(cc_temp$Group, "group")
+    cc_temp = cc_temp[order(as.numeric(cc_temp$Cohort)),]
+    cc_temp$Cohort = paste("Cohort", cc_temp$Cohort)
+    temp = rma(yi=Her, sei=SE, method="FE", data=cc_temp)
+    #print(temp$I2)
+    xlab_expr <- as.expression(bquote(Heritability ~ "(" ~ I^2 ~ ":" ~ .(round(temp$I2, 2)) ~ "%)"))
+    forest(temp, slab = cc_temp$Cohort, xlim = c(-0.5, 1), alim = c(-0.25, 1), xlab = xlab_expr, header = paste0(name, ": Case-Control HE-Reg")) 
+    cc_data = rbind(cc_data, c(trait, "Case-Control HE-Reg", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
+    if(dim(cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="PopPrev"),])[1] > 0){
+      cc_temp = cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="PopPrev"),]
+      temp = rma(yi=Her, sei=SE, method="FE", data=cc_temp) 
+      cc_data = rbind(cc_data, c(trait, "PopPrev", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
+    }
+}
+dev.off()
+
+traits = c("HyperLip_Af", "HyperLip_Cad", "HyperLip_Hf", "HyperLip_Ht", "HyperLip_Mi", "HyperLip_DmT2")
+names = c("Hyperlipidemia -> Atrial Fibrillation", "Hyperlipidemia -> Coronary Artery Disease", "Hyperlipidemia -> Heart Failure",
+          "Hyperlipidemia -> Hypertension", "Hyperlipidemia -> Myocardial Infarction", "Hyperlipidemia -> Type 2 Diabetes")
+png("~/Desktop/Heritability/tables_figures/SuppForest/casecontrol_hyperlipidemia_forest_plots.png", width = 3600, height = 2400, res = 300)
+par(mfrow = c(2, 3))
+for(num in 1:length(traits)){
+    trait = traits[num]
+    name = names[num]
+    cc_temp = cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="CaseControl"),]
+    cc_temp["Cohort"] = str_remove(cc_temp$Group, "group")
+    cc_temp = cc_temp[order(as.numeric(cc_temp$Cohort)),]
+    cc_temp$Cohort = paste("Cohort", cc_temp$Cohort)
+    temp = rma(yi=Her, sei=SE, method="FE", data=cc_temp)
+    #print(temp$I2)
+    xlab_expr <- as.expression(bquote(Heritability ~ "(" ~ I^2 ~ ":" ~ .(round(temp$I2, 2)) ~ "%)"))
+    forest(temp, slab = cc_temp$Cohort, xlim = c(-0.5, 1), alim = c(-0.25, 1), xlab = xlab_expr, header = paste0(name, ": Case-Control HE-Reg")) 
+    cc_data = rbind(cc_data, c(trait, "Case-Control HE-Reg", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
+    if(dim(cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="PopPrev"),])[1] > 0){
+      cc_temp = cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="PopPrev"),]
+      temp = rma(yi=Her, sei=SE, method="FE", data=cc_temp) 
+      cc_data = rbind(cc_data, c(trait, "PopPrev", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
+    }
+}
+dev.off()
+
+traits = c("Ht_age45", "Ht_age50", "Ht_age55", "Ht_age60", "Ht_age65", "Ht_age70", "Ht_age75",
+           "Ht_half", "Ht_over60", "Ht_over70", "Ht_quart", "NoDmT2_Cad", "NoHt_Cad", "NoHyperLip_Cad", "None_Cad")
+for(num in 1:length(traits)){
+    trait = traits[num]
+    cc_temp = cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="CaseControl"),]
+    cc_temp["Cohort"] = str_remove(cc_temp$Group, "group")
+    cc_temp = cc_temp[order(as.numeric(cc_temp$Cohort)),]
+    cc_temp$Cohort = paste("Cohort", cc_temp$Cohort)
+    temp = rma(yi=Her, sei=SE, method="FE", data=cc_temp) 
+    #print(temp$I2)
+    cc_data = rbind(cc_data, c(trait, "Case-Control HE-Reg", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
+    if(dim(cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="PopPrev"),])[1] > 0){
+      cc_temp = cc_traits[which(cc_traits$Trait==trait & cc_traits$Type=="PopPrev"),]
+      temp = rma(yi=Her, sei=SE, method="FE", data=cc_temp) 
+      cc_data = rbind(cc_data, c(trait, "PopPrev", temp$beta[1], temp$se, temp$pval, NA, NA, NA))
+    }
+}
+```
+
+```{r tte_traits, include = FALSE}
 tte_traits <- read.csv("~/Desktop/Heritability/ukbb/h2/intermediate/tte_her.txt", sep="")
 jack_traits <- read.csv("~/Desktop/Heritability/ukbb/h2/intermediate/jack_her.txt", sep="")
 none_cad_traits <- read.csv("~/Desktop/Heritability/ukbb/h2/intermediate/None_Cad_tte_noAge.txt", sep="")
@@ -296,7 +454,9 @@ interval_only = c("DmT2_Af", "DmT2_Cad", "DmT2_Hf", "DmT2_Ht", "DmT2_HyperLip", 
                   "Ht_Af", "Ht_Cad", "Ht_DmT2", "Ht_Hf", "Ht_HyperLip", "Ht_Mi", "HyperLip_Af", 
                   "HyperLip_Cad", "HyperLip_DmT2", "HyperLip_Hf", "HyperLip_Ht", "HyperLip_Mi")
 
+tte_noninterval = tte_traits[which(tte_traits$Trait %in% interval_only & tte_traits$Type=="TTE"),]
 tte_traits = tte_traits[-which(tte_traits$Trait %in% interval_only & tte_traits$Type=="TTE"),]
+
 # original TTE was the left censored to tte, interval was the duration
 # the original TTE is too messy -- only using interval for now
 tte_traits$Type="TTE"
@@ -305,8 +465,330 @@ tte_traits["H2_log"] = NA
 tte_traits[which(tte_traits$Type=="TTE"),"H2_log"] = tte_traits$Her[which(tte_traits$Type=="TTE")]/(tte_traits$Her[which(tte_traits$Type=="TTE")] + pi^2/6) 
 tte_data = NULL
 h2_log_data = NULL
-for(trait in unique(tte_traits$Trait)){
+
+traits = c("Af", "Cad", "Hf", "HyperLip", "Ht", "Mi", "DmT2")
+names = c("Atrial Fibrillation", "Coronary Artery Disease", "Heart Failure", "Hyperlipidemia", "Hypertension", "Myocardial Infarction", "Type 2 Diabetes")
+png("~/Desktop/Heritability/tables_figures/SuppForest/tte_cardio_forest_plots.png", width = 3600, height = 3600, res = 300)
+par(mfrow = c(3, 3))
+for(num in 1:length(traits)){
+    trait = traits[num]
+    name = names[num]
     tte_temp = tte_traits[which(tte_traits$Trait==trait & tte_traits$Type=="TTE"),]
+    beta_zeros = dim(tte_temp[which(tte_temp$Method=='tte' & tte_temp$Her==1e-4),])[1]
+    jack_zeros = dim(tte_temp[which(tte_temp$Method=='jackknife' & tte_temp$Her==1e-4),])[1]
+    counts = dim(tte_temp[which(tte_temp$Method=='tte'),])[1]
+    tte_group = NULL
+    h2_log_group = NULL
+    for(group in unique(tte_temp$Group)){
+      tte_beta = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="tte"),]
+      tte_jack = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="jackknife"),]
+      N=tte_beta$N
+      theta = tte_beta$Her
+      min_rate = min(tte_jack$N/N, na.rm=T)
+      max_rate = max(tte_jack$N/N, na.rm=T)
+      #if(min_rate < 0.75 | max_rate > 0.85){
+      #  print(trait)
+      #  print(tte_beta)
+      #  print(tte_jack)
+      #}
+      m_j = N - tte_jack$N
+      h_j = N/m_j
+      theta_notj = tte_jack$Her
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      tte_group = rbind(tte_group, c(group, theta, var_j))
+      
+      theta = tte_beta$H2_log
+      theta_notj = tte_jack$H2_log
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      h2_log_group = rbind(h2_log_group, c(group, theta, var_j))
+    }
+    tte_group = as.data.frame(tte_group)
+    colnames(tte_group) = c("group", "theta", "varj")
+    tte_group$theta = as.numeric(tte_group$theta)
+    tte_group$varj = as.numeric(tte_group$varj)
+    temp = rma(yi=theta, vi=varj, method="FE", data=tte_group)
+    tte_data = rbind(tte_data, c(trait, "COXMM sigma2_g", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+    h2_log_group = as.data.frame(h2_log_group)
+    colnames(h2_log_group) = c("group", "theta", "varj")
+    h2_log_group$theta = as.numeric(h2_log_group$theta)
+    h2_log_group$varj = as.numeric(h2_log_group$varj)
+    h2_log_group["Cohort"] = str_remove(h2_log_group$group, "group")
+    h2_log_group = h2_log_group[order(as.numeric(h2_log_group$Cohort)),]
+    h2_log_group$Cohort = paste("Cohort", h2_log_group$Cohort)
+    temp = rma(yi=theta, vi=varj, method="FE", data=h2_log_group)
+    xlab_expr <- as.expression(bquote(Heritability ~ "(" ~ I^2 ~ ":" ~ .(round(temp$I2, 2)) ~ "%)"))
+    forest(temp, slab = h2_log_group$Cohort, xlim = c(-0.5, 1), alim = c(-0.25, 1), xlab = xlab_expr, header = paste0(name, ": COXMM"))
+    h2_log_data = rbind(h2_log_data, c(trait, "COXMM h2_log", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+}
+dev.off()
+
+traits = c("arthritis", "asthma", "copd", "death", "dementia", "depression", "hayfever", "hypothyroidism", "stroke")
+names = c("Arthritis", "Asthma", "COPD", "Death", "Dementia", "Depression", "Hayfever", "Hypothyroidism", "Stroke")
+png("~/Desktop/Heritability/tables_figures/SuppForest/tte_addtraits_forest_plots.png", width = 3600, height = 3600, res = 300)
+par(mfrow = c(3, 3))
+for(num in 1:length(traits)){
+    trait = traits[num]
+    name = names[num]
+    tte_temp = tte_traits[which(tte_traits$Trait==trait & tte_traits$Type=="TTE"),]
+    beta_zeros = dim(tte_temp[which(tte_temp$Method=='tte' & tte_temp$Her==1e-4),])[1]
+    jack_zeros = dim(tte_temp[which(tte_temp$Method=='jackknife' & tte_temp$Her==1e-4),])[1]
+    counts = dim(tte_temp[which(tte_temp$Method=='tte'),])[1]
+    tte_group = NULL
+    h2_log_group = NULL
+    for(group in unique(tte_temp$Group)){
+      tte_beta = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="tte"),]
+      tte_jack = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="jackknife"),]
+      N=tte_beta$N
+      theta = tte_beta$Her
+      min_rate = min(tte_jack$N/N, na.rm=T)
+      max_rate = max(tte_jack$N/N, na.rm=T)
+      #if(min_rate < 0.75 | max_rate > 0.85){
+      #  print(trait)
+      #  print(tte_beta)
+      #  print(tte_jack)
+      #}
+      m_j = N - tte_jack$N
+      h_j = N/m_j
+      theta_notj = tte_jack$Her
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      tte_group = rbind(tte_group, c(group, theta, var_j))
+      
+      theta = tte_beta$H2_log
+      theta_notj = tte_jack$H2_log
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      h2_log_group = rbind(h2_log_group, c(group, theta, var_j))
+    }
+    tte_group = as.data.frame(tte_group)
+    colnames(tte_group) = c("group", "theta", "varj")
+    tte_group$theta = as.numeric(tte_group$theta)
+    tte_group$varj = as.numeric(tte_group$varj)
+    temp = rma(yi=theta, vi=varj, method="FE", data=tte_group)
+    tte_data = rbind(tte_data, c(trait, "COXMM sigma2_g", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+    h2_log_group = as.data.frame(h2_log_group)
+    colnames(h2_log_group) = c("group", "theta", "varj")
+    h2_log_group$theta = as.numeric(h2_log_group$theta)
+    h2_log_group$varj = as.numeric(h2_log_group$varj)
+    h2_log_group["Cohort"] = str_remove(h2_log_group$group, "group")
+    h2_log_group = h2_log_group[order(as.numeric(h2_log_group$Cohort)),]
+    h2_log_group$Cohort = paste("Cohort", h2_log_group$Cohort)
+    temp = rma(yi=theta, vi=varj, method="FE", data=h2_log_group)
+    xlab_expr <- as.expression(bquote(Heritability ~ "(" ~ I^2 ~ ":" ~ .(round(temp$I2, 2)) ~ "%)"))
+    forest(temp, slab = h2_log_group$Cohort, xlim = c(-0.5, 1), alim = c(-0.25, 1), xlab = xlab_expr, header = paste0(name, ": COXMM"))
+    h2_log_data = rbind(h2_log_data, c(trait, "COXMM h2_log", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+}
+dev.off()
+
+traits = c("DmT2_Af", "DmT2_Cad", "DmT2_Hf", "DmT2_HyperLip", "DmT2_Ht", "DmT2_Mi")
+names = c("Type 2 Diabetes -> Atrial Fibrillation", "Type 2 Diabetes -> Coronary Artery Disease", "Type 2 Diabetes -> Heart Failure",
+          "Type 2 Diabetes -> Hyperlipidemia", "Type 2 Diabetes -> Hypertension", "Type 2 Diabetes -> Myocardial Infarction")
+png("~/Desktop/Heritability/tables_figures/SuppForest/tte_type2diabetes_forest_plots.png", width = 3600, height = 2400, res = 300)
+par(mfrow = c(2, 3))
+for(num in 1:length(traits)){
+    trait = traits[num]
+    name = names[num]
+    tte_temp = tte_traits[which(tte_traits$Trait==trait & tte_traits$Type=="TTE"),]
+    beta_zeros = dim(tte_temp[which(tte_temp$Method=='tte' & tte_temp$Her==1e-4),])[1]
+    jack_zeros = dim(tte_temp[which(tte_temp$Method=='jackknife' & tte_temp$Her==1e-4),])[1]
+    counts = dim(tte_temp[which(tte_temp$Method=='tte'),])[1]
+    tte_group = NULL
+    h2_log_group = NULL
+    for(group in unique(tte_temp$Group)){
+      tte_beta = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="tte"),]
+      tte_jack = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="jackknife"),]
+      N=tte_beta$N
+      theta = tte_beta$Her
+      min_rate = min(tte_jack$N/N, na.rm=T)
+      max_rate = max(tte_jack$N/N, na.rm=T)
+      #if(min_rate < 0.75 | max_rate > 0.85){
+      #  print(trait)
+      #  print(tte_beta)
+      #  print(tte_jack)
+      #}
+      m_j = N - tte_jack$N
+      h_j = N/m_j
+      theta_notj = tte_jack$Her
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      tte_group = rbind(tte_group, c(group, theta, var_j))
+      
+      theta = tte_beta$H2_log
+      theta_notj = tte_jack$H2_log
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      h2_log_group = rbind(h2_log_group, c(group, theta, var_j))
+    }
+    tte_group = as.data.frame(tte_group)
+    colnames(tte_group) = c("group", "theta", "varj")
+    tte_group$theta = as.numeric(tte_group$theta)
+    tte_group$varj = as.numeric(tte_group$varj)
+    temp = rma(yi=theta, vi=varj, method="FE", data=tte_group)
+    tte_data = rbind(tte_data, c(trait, "COXMM sigma2_g", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+    h2_log_group = as.data.frame(h2_log_group)
+    colnames(h2_log_group) = c("group", "theta", "varj")
+    h2_log_group$theta = as.numeric(h2_log_group$theta)
+    h2_log_group$varj = as.numeric(h2_log_group$varj)
+    h2_log_group["Cohort"] = str_remove(h2_log_group$group, "group")
+    h2_log_group = h2_log_group[order(as.numeric(h2_log_group$Cohort)),]
+    h2_log_group$Cohort = paste("Cohort", h2_log_group$Cohort)
+    temp = rma(yi=theta, vi=varj, method="FE", data=h2_log_group)
+    xlab_expr <- as.expression(bquote(Heritability ~ "(" ~ I^2 ~ ":" ~ .(round(temp$I2, 2)) ~ "%)"))
+    forest(temp, slab = h2_log_group$Cohort, xlim = c(-0.5, 1), alim = c(-0.25, 1), xlab = xlab_expr, header = paste0(name, ": COXMM"))
+    h2_log_data = rbind(h2_log_data, c(trait, "COXMM h2_log", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+}
+dev.off()
+
+traits = c("Ht_Af", "Ht_Cad", "Ht_Hf", "Ht_HyperLip","Ht_Mi", "Ht_DmT2")
+names = c("Hypertension -> Atrial Fibrillation", "Hypertension -> Coronary Artery Disease", "Hypertension -> Heart Failure",
+          "Hypertension -> Hyperlipidemia", "Hypertension -> Myocardial Infarction", "Hypertension -> Type 2 Diabetes")
+png("~/Desktop/Heritability/tables_figures/SuppForest/tte_hypertension_forest_plots.png", width = 3600, height = 2400, res = 300)
+par(mfrow = c(2, 3))
+for(num in 1:length(traits)){
+    trait = traits[num]
+    name = names[num]
+    tte_temp = tte_traits[which(tte_traits$Trait==trait & tte_traits$Type=="TTE"),]
+    beta_zeros = dim(tte_temp[which(tte_temp$Method=='tte' & tte_temp$Her==1e-4),])[1]
+    jack_zeros = dim(tte_temp[which(tte_temp$Method=='jackknife' & tte_temp$Her==1e-4),])[1]
+    counts = dim(tte_temp[which(tte_temp$Method=='tte'),])[1]
+    tte_group = NULL
+    h2_log_group = NULL
+    for(group in unique(tte_temp$Group)){
+      tte_beta = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="tte"),]
+      tte_jack = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="jackknife"),]
+      N=tte_beta$N
+      theta = tte_beta$Her
+      min_rate = min(tte_jack$N/N, na.rm=T)
+      max_rate = max(tte_jack$N/N, na.rm=T)
+      #if(min_rate < 0.75 | max_rate > 0.85){
+      #  print(trait)
+      #  print(tte_beta)
+      #  print(tte_jack)
+      #}
+      m_j = N - tte_jack$N
+      h_j = N/m_j
+      theta_notj = tte_jack$Her
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      tte_group = rbind(tte_group, c(group, theta, var_j))
+      
+      theta = tte_beta$H2_log
+      theta_notj = tte_jack$H2_log
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      h2_log_group = rbind(h2_log_group, c(group, theta, var_j))
+    }
+    tte_group = as.data.frame(tte_group)
+    colnames(tte_group) = c("group", "theta", "varj")
+    tte_group$theta = as.numeric(tte_group$theta)
+    tte_group$varj = as.numeric(tte_group$varj)
+    temp = rma(yi=theta, vi=varj, method="FE", data=tte_group)
+    tte_data = rbind(tte_data, c(trait, "COXMM sigma2_g", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+    h2_log_group = as.data.frame(h2_log_group)
+    colnames(h2_log_group) = c("group", "theta", "varj")
+    h2_log_group$theta = as.numeric(h2_log_group$theta)
+    h2_log_group$varj = as.numeric(h2_log_group$varj)
+    h2_log_group["Cohort"] = str_remove(h2_log_group$group, "group")
+    h2_log_group = h2_log_group[order(as.numeric(h2_log_group$Cohort)),]
+    h2_log_group$Cohort = paste("Cohort", h2_log_group$Cohort)
+    temp = rma(yi=theta, vi=varj, method="FE", data=h2_log_group)
+    xlab_expr <- as.expression(bquote(Heritability ~ "(" ~ I^2 ~ ":" ~ .(round(temp$I2, 2)) ~ "%)"))
+    forest(temp, slab = h2_log_group$Cohort, xlim = c(-0.5, 1), alim = c(-0.25, 1), xlab = xlab_expr, header = paste0(name, ": COXMM"))
+    h2_log_data = rbind(h2_log_data, c(trait, "COXMM h2_log", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+}
+dev.off()
+
+traits = c("HyperLip_Af", "HyperLip_Cad", "HyperLip_Hf", "HyperLip_Ht", "HyperLip_Mi", "HyperLip_DmT2")
+names = c("Hyperlipidemia -> Atrial Fibrillation", "Hyperlipidemia -> Coronary Artery Disease", "Hyperlipidemia -> Heart Failure",
+          "Hyperlipidemia -> Hypertension", "Hyperlipidemia -> Myocardial Infarction", "Hyperlipidemia -> Type 2 Diabetes")
+png("~/Desktop/Heritability/tables_figures/SuppForest/tte_hyperlipidemia_forest_plots.png", width = 3600, height = 2400, res = 300)
+par(mfrow = c(2, 3))
+for(num in 1:length(traits)){
+    trait = traits[num]
+    name = names[num]
+    tte_temp = tte_traits[which(tte_traits$Trait==trait & tte_traits$Type=="TTE"),]
+    beta_zeros = dim(tte_temp[which(tte_temp$Method=='tte' & tte_temp$Her==1e-4),])[1]
+    jack_zeros = dim(tte_temp[which(tte_temp$Method=='jackknife' & tte_temp$Her==1e-4),])[1]
+    counts = dim(tte_temp[which(tte_temp$Method=='tte'),])[1]
+    tte_group = NULL
+    h2_log_group = NULL
+    for(group in unique(tte_temp$Group)){
+      tte_beta = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="tte"),]
+      tte_jack = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="jackknife"),]
+      N=tte_beta$N
+      theta = tte_beta$Her
+      min_rate = min(tte_jack$N/N, na.rm=T)
+      max_rate = max(tte_jack$N/N, na.rm=T)
+      #if(min_rate < 0.75 | max_rate > 0.85){
+      #  print(trait)
+      #  print(tte_beta)
+      #  print(tte_jack)
+      #}
+      m_j = N - tte_jack$N
+      h_j = N/m_j
+      theta_notj = tte_jack$Her
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      tte_group = rbind(tte_group, c(group, theta, var_j))
+      
+      theta = tte_beta$H2_log
+      theta_notj = tte_jack$H2_log
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      h2_log_group = rbind(h2_log_group, c(group, theta, var_j))
+    }
+    tte_group = as.data.frame(tte_group)
+    colnames(tte_group) = c("group", "theta", "varj")
+    tte_group$theta = as.numeric(tte_group$theta)
+    tte_group$varj = as.numeric(tte_group$varj)
+    temp = rma(yi=theta, vi=varj, method="FE", data=tte_group)
+    tte_data = rbind(tte_data, c(trait, "COXMM sigma2_g", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+    h2_log_group = as.data.frame(h2_log_group)
+    colnames(h2_log_group) = c("group", "theta", "varj")
+    h2_log_group$theta = as.numeric(h2_log_group$theta)
+    h2_log_group$varj = as.numeric(h2_log_group$varj)
+    h2_log_group["Cohort"] = str_remove(h2_log_group$group, "group")
+    h2_log_group = h2_log_group[order(as.numeric(h2_log_group$Cohort)),]
+    h2_log_group$Cohort = paste("Cohort", h2_log_group$Cohort)
+    temp = rma(yi=theta, vi=varj, method="FE", data=h2_log_group)
+    xlab_expr <- as.expression(bquote(Heritability ~ "(" ~ I^2 ~ ":" ~ .(round(temp$I2, 2)) ~ "%)"))
+    forest(temp, slab = h2_log_group$Cohort, xlim = c(-0.5, 1), alim = c(-0.25, 1), xlab = xlab_expr, header = paste0(name, ": COXMM"))
+    h2_log_data = rbind(h2_log_data, c(trait, "COXMM h2_log", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+}
+dev.off()
+
+traits = c("Ht_age45", "Ht_age50", "Ht_age55", "Ht_age60", "Ht_age65", "Ht_age70", "Ht_age75",
+           "Ht_half", "Ht_over60", "Ht_over70", "Ht_quart", "NoDmT2_Cad", "NoHt_Cad", "NoHyperLip_Cad",
+           "None_Cad", "YesDmT2_Cad", "YesHt_Cad", "YesHyperLip_Cad")
+for(num in 1:length(traits)){
+    trait = traits[num]
+    name = names[num]
+    tte_temp = tte_traits[which(tte_traits$Trait==trait & tte_traits$Type=="TTE"),]
+    tte_temp["Cohort"] = str_remove(tte_temp$Group, "group")
+    tte_temp = tte_temp[order(as.numeric(tte_temp$Cohort)),]
+    tte_temp$Cohort = paste("Cohort", tte_temp$Cohort)
     beta_zeros = dim(tte_temp[which(tte_temp$Method=='tte' & tte_temp$Her==1e-4),])[1]
     jack_zeros = dim(tte_temp[which(tte_temp$Method=='jackknife' & tte_temp$Her==1e-4),])[1]
     counts = dim(tte_temp[which(tte_temp$Method=='tte'),])[1]
@@ -354,6 +836,7 @@ for(trait in unique(tte_traits$Trait)){
     temp = rma(yi=theta, vi=varj, method="FE", data=h2_log_group)
     h2_log_data = rbind(h2_log_data, c(trait, "COXMM h2_log", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
 }
+
 noage = data.frame(rbind(tte_data, h2_log_data, age_data, cc_data))
 colnames(noage) = c("Trait", "Method", "H2", "SE", "P", "BetaZeros", "JackZeros", "Counts")
 noage$Method = as.factor(noage$Method)
@@ -385,7 +868,232 @@ noage$Trait = factor(noage$Trait,
 noage$H2 = as.numeric(noage$H2)
 noage$SE = as.numeric(noage$SE)
 noage$P = as.numeric(noage$P)
+```
 
+
+```{r noninterval_tte, include = FALSE}
+
+# This for the lef truncated traits
+tte_noninterval = tte_noninterval[which(tte_noninterval$Trait %in% interval_only),]
+tte_noninterval$Her = round(tte_noninterval$Her, 5)
+tte_noninterval["H2_log"] = NA
+tte_noninterval[which(tte_noninterval$Type=="TTE"),"H2_log"] = tte_noninterval$Her[which(tte_noninterval$Type=="TTE")]/(tte_noninterval$Her[which(tte_noninterval$Type=="TTE")] + pi^2/6) 
+tte_data2 = NULL
+h2_log_data2 = NULL
+# Processing the non-interval traits
+
+traits = c("Ht_Af", "Ht_Cad", "Ht_Hf", "Ht_HyperLip","Ht_Mi", "Ht_DmT2")
+names = c("Hypertension -> Atrial Fibrillation", "Hypertension -> Coronary Artery Disease", "Hypertension -> Heart Failure",
+          "Hypertension -> Hyperlipidemia", "Hypertension -> Myocardial Infarction", "Hypertension -> Type 2 Diabetes")
+png("~/Desktop/Heritability/tables_figures/SuppForest/lefttrunc_hypertension_forest_plots.png", width = 3600, height = 2400, res = 300)
+par(mfrow = c(2, 3))
+for(num in 1:length(traits)){
+    trait = traits[num]
+    name = names[num]
+    tte_temp = tte_noninterval[which(tte_noninterval$Trait==trait & tte_noninterval$Type=="TTE"),]
+    beta_zeros = dim(tte_temp[which(tte_temp$Method=='tte' & tte_temp$Her==1e-4),])[1]
+    jack_zeros = dim(tte_temp[which(tte_temp$Method=='jackknife' & tte_temp$Her==1e-4),])[1]
+    counts = dim(tte_temp[which(tte_temp$Method=='tte'),])[1]
+    tte_group = NULL
+    h2_log_group = NULL
+    for(group in unique(tte_temp$Group)){
+      tte_beta = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="tte"),]
+      tte_jack = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="jackknife"),]
+      N=tte_beta$N
+      theta = tte_beta$Her
+      min_rate = min(tte_jack$N/N, na.rm=T)
+      max_rate = max(tte_jack$N/N, na.rm=T)
+      #if(min_rate < 0.75 | max_rate > 0.85){
+      #  print(trait)
+      #  print(tte_beta)
+      #  print(tte_jack)
+      #}
+      m_j = N - tte_jack$N
+      h_j = N/m_j
+      theta_notj = tte_jack$Her
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      tte_group = rbind(tte_group, c(group, theta, var_j))
+      
+      theta = tte_beta$H2_log
+      theta_notj = tte_jack$H2_log
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      h2_log_group = rbind(h2_log_group, c(group, theta, var_j))
+    }
+    tte_group = as.data.frame(tte_group)
+    colnames(tte_group) = c("group", "theta", "varj")
+    tte_group$theta = as.numeric(tte_group$theta)
+    tte_group$varj = as.numeric(tte_group$varj)
+    if(counts==1 & (tte_group$varj)[1]<= 1e-4){
+        tte_data2 = rbind(tte_data2, c(trait, "COXMM sigma2_g", tte_group$theta, sqrt(tte_group$varj), NA, beta_zeros, jack_zeros, counts))
+    } else {
+      temp = rma(yi=theta, vi=varj, method="FE", data=tte_group)
+      tte_data2 = rbind(tte_data2, c(trait, "COXMM sigma2_g", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+    }
+    h2_log_group = as.data.frame(h2_log_group)
+    colnames(h2_log_group) = c("group", "theta", "varj")
+    h2_log_group$theta = as.numeric(h2_log_group$theta)
+    h2_log_group$varj = as.numeric(h2_log_group$varj)
+    h2_log_group["Cohort"] = str_remove(h2_log_group$group, "group")
+    h2_log_group = h2_log_group[order(as.numeric(h2_log_group$Cohort)),]
+    h2_log_group$Cohort = paste("Cohort", h2_log_group$Cohort)
+    if(counts==1 & (h2_log_group$varj)[1] <= 1e-4){
+        h2_log_data2 = rbind(h2_log_data2, c(trait, "COXMM h2_log", h2_log_group$theta, sqrt(h2_log_group$varj), NA, beta_zeros, jack_zeros, counts))
+    } else{
+      temp = rma(yi=theta, vi=varj, method="FE", data=h2_log_group)
+      xlab_expr <- as.expression(bquote(Heritability ~ "(" ~ I^2 ~ ":" ~ .(round(temp$I2, 2)) ~ "%)"))
+      forest(temp, slab = h2_log_group$Cohort, xlim = c(-0.5, 1), alim = c(-0.25, 1), xlab = xlab_expr, header = paste0(name, ": COXMM"))
+      h2_log_data2 = rbind(h2_log_data2, c(trait, "COXMM h2_log", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+    }
+}
+dev.off()
+
+traits = c("Ht_Af", "Ht_Cad", "Ht_Hf", "Ht_HyperLip","Ht_Mi", "Ht_DmT2")
+names = c("Hypertension -> Atrial Fibrillation", "Hypertension -> Coronary Artery Disease", "Hypertension -> Heart Failure",
+          "Hypertension -> Hyperlipidemia", "Hypertension -> Myocardial Infarction", "Hypertension -> Type 2 Diabetes")
+png("~/Desktop/Heritability/tables_figures/SuppForest/lefttrunc_hypertension_forest_plots.png", width = 3600, height = 2400, res = 300)
+par(mfrow = c(2, 3))
+for(num in 1:length(traits)){
+    trait = traits[num]
+    name = names[num]
+    tte_temp = tte_noninterval[which(tte_noninterval$Trait==trait & tte_noninterval$Type=="TTE"),]
+    beta_zeros = dim(tte_temp[which(tte_temp$Method=='tte' & tte_temp$Her==1e-4),])[1]
+    jack_zeros = dim(tte_temp[which(tte_temp$Method=='jackknife' & tte_temp$Her==1e-4),])[1]
+    counts = dim(tte_temp[which(tte_temp$Method=='tte'),])[1]
+    tte_group = NULL
+    h2_log_group = NULL
+    for(group in unique(tte_temp$Group)){
+      tte_beta = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="tte"),]
+      tte_jack = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="jackknife"),]
+      N=tte_beta$N
+      theta = tte_beta$Her
+      min_rate = min(tte_jack$N/N, na.rm=T)
+      max_rate = max(tte_jack$N/N, na.rm=T)
+      #if(min_rate < 0.75 | max_rate > 0.85){
+      #  print(trait)
+      #  print(tte_beta)
+      #  print(tte_jack)
+      #}
+      m_j = N - tte_jack$N
+      h_j = N/m_j
+      theta_notj = tte_jack$Her
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      tte_group = rbind(tte_group, c(group, theta, var_j))
+      
+      theta = tte_beta$H2_log
+      theta_notj = tte_jack$H2_log
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      h2_log_group = rbind(h2_log_group, c(group, theta, var_j))
+    }
+    tte_group = as.data.frame(tte_group)
+    colnames(tte_group) = c("group", "theta", "varj")
+    tte_group$theta = as.numeric(tte_group$theta)
+    tte_group$varj = as.numeric(tte_group$varj)
+    if(counts==1 & (tte_group$varj)[1]<= 1e-4){
+        tte_data2 = rbind(tte_data2, c(trait, "COXMM sigma2_g", tte_group$theta, sqrt(tte_group$varj), NA, beta_zeros, jack_zeros, counts))
+    } else {
+      temp = rma(yi=theta, vi=varj, method="FE", data=tte_group)
+      tte_data2 = rbind(tte_data2, c(trait, "COXMM sigma2_g", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+    }
+    h2_log_group = as.data.frame(h2_log_group)
+    colnames(h2_log_group) = c("group", "theta", "varj")
+    h2_log_group$theta = as.numeric(h2_log_group$theta)
+    h2_log_group$varj = as.numeric(h2_log_group$varj)
+    h2_log_group["Cohort"] = str_remove(h2_log_group$group, "group")
+    h2_log_group = h2_log_group[order(as.numeric(h2_log_group$Cohort)),]
+    h2_log_group$Cohort = paste("Cohort", h2_log_group$Cohort)    
+    if(counts==1 & (h2_log_group$varj)[1] <= 1e-4){
+        h2_log_data2 = rbind(h2_log_data2, c(trait, "COXMM h2_log", h2_log_group$theta, sqrt(h2_log_group$varj), NA, beta_zeros, jack_zeros, counts))
+    } else{
+      temp = rma(yi=theta, vi=varj, method="FE", data=h2_log_group)
+      xlab_expr <- as.expression(bquote(Heritability ~ "(" ~ I^2 ~ ":" ~ .(round(temp$I2, 2)) ~ "%)"))
+      forest(temp, slab = h2_log_group$Cohort, xlim = c(-0.5, 1), alim = c(-0.25, 1), xlab = xlab_expr, header = paste0(name, ": COXMM"))
+      h2_log_data2 = rbind(h2_log_data2, c(trait, "COXMM h2_log", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+    }
+}
+dev.off()
+
+traits = c("HyperLip_Af", "HyperLip_Cad", "HyperLip_Hf", "HyperLip_Ht", "HyperLip_Mi", "HyperLip_DmT2")
+names = c("Hyperlipidemia -> Atrial Fibrillation", "Hyperlipidemia -> Coronary Artery Disease", "Hyperlipidemia -> Heart Failure",
+          "Hyperlipidemia -> Hypertension", "Hyperlipidemia -> Myocardial Infarction", "Hyperlipidemia -> Type 2 Diabetes")
+png("~/Desktop/Heritability/tables_figures/SuppForest/lefttrunc_hyperlipidemia_forest_plots.png", width = 3600, height = 2400, res = 300)
+par(mfrow = c(2, 3))
+for(num in 1:length(traits)){
+    trait = traits[num]
+    name = names[num]
+    tte_temp = tte_noninterval[which(tte_noninterval$Trait==trait & tte_noninterval$Type=="TTE"),]
+    beta_zeros = dim(tte_temp[which(tte_temp$Method=='tte' & tte_temp$Her==1e-4),])[1]
+    jack_zeros = dim(tte_temp[which(tte_temp$Method=='jackknife' & tte_temp$Her==1e-4),])[1]
+    counts = dim(tte_temp[which(tte_temp$Method=='tte'),])[1]
+    tte_group = NULL
+    h2_log_group = NULL
+    for(group in unique(tte_temp$Group)){
+      tte_beta = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="tte"),]
+      tte_jack = tte_temp[which(tte_temp$Group==group & tte_temp$Method=="jackknife"),]
+      N=tte_beta$N
+      theta = tte_beta$Her
+      min_rate = min(tte_jack$N/N, na.rm=T)
+      max_rate = max(tte_jack$N/N, na.rm=T)
+      #if(min_rate < 0.75 | max_rate > 0.85){
+      #  print(trait)
+      #  print(tte_beta)
+      #  print(tte_jack)
+      #}
+      m_j = N - tte_jack$N
+      h_j = N/m_j
+      theta_notj = tte_jack$Her
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      tte_group = rbind(tte_group, c(group, theta, var_j))
+      
+      theta = tte_beta$H2_log
+      theta_notj = tte_jack$H2_log
+      theta_j = sum(theta - theta_notj) + sum(m_j*theta_notj/N)
+      
+      tau_j = h_j*theta - (h_j - 1)*theta_notj
+      var_j = 1/5*sum((tau_j - theta_j)^2/(h_j - 1))
+      h2_log_group = rbind(h2_log_group, c(group, theta, var_j))
+    }
+    tte_group = as.data.frame(tte_group)
+    colnames(tte_group) = c("group", "theta", "varj")
+    tte_group$theta = as.numeric(tte_group$theta)
+    tte_group$varj = as.numeric(tte_group$varj)
+    if(counts==1 & (tte_group$varj)[1]<= 1e-4){
+        tte_data2 = rbind(tte_data2, c(trait, "COXMM sigma2_g", tte_group$theta, sqrt(tte_group$varj), NA, beta_zeros, jack_zeros, counts))
+    } else {
+      temp = rma(yi=theta, vi=varj, method="FE", data=tte_group)
+      tte_data2 = rbind(tte_data2, c(trait, "COXMM sigma2_g", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+    }
+    h2_log_group = as.data.frame(h2_log_group)
+    colnames(h2_log_group) = c("group", "theta", "varj")
+    h2_log_group$theta = as.numeric(h2_log_group$theta)
+    h2_log_group$varj = as.numeric(h2_log_group$varj)
+    h2_log_group["Cohort"] = str_remove(h2_log_group$group, "group")
+    h2_log_group = h2_log_group[order(as.numeric(h2_log_group$Cohort)),]
+    h2_log_group$Cohort = paste("Cohort", h2_log_group$Cohort)
+    if(counts==1 & (h2_log_group$varj)[1] <= 1e-4){
+        h2_log_data2 = rbind(h2_log_data2, c(trait, "COXMM h2_log", h2_log_group$theta, sqrt(h2_log_group$varj), NA, beta_zeros, jack_zeros, counts))
+    } else{
+      temp = rma(yi=theta, vi=varj, method="FE", data=h2_log_group)
+      xlab_expr <- as.expression(bquote(Heritability ~ "(" ~ I^2 ~ ":" ~ .(round(temp$I2, 2)) ~ "%)"))
+      forest(temp, slab = h2_log_group$Cohort, xlim = c(-0.5, 1), alim = c(-0.25, 1), xlab = xlab_expr, header = paste0(name, ": COXMM"))
+      h2_log_data2 = rbind(h2_log_data2, c(trait, "COXMM h2_log", temp$beta[1], temp$se, temp$pval, beta_zeros, jack_zeros, counts))
+    }
+}
+dev.off()
 ```
 
 ```{r supp_table2, echo =F}
@@ -668,7 +1376,7 @@ intervals$`Terminal Trait` = str_remove(intervals$`Terminal Trait`, "Type 2 Diab
 
 fig5 = ggplot(intervals, aes(x=`Terminal Trait`, y=H2, ymin=H2-SE, ymax=H2+SE, fill=Method)) + 
   geom_bar(stat='identity', position = position_dodge(0.9)) + geom_errorbar(position = position_dodge(0.9)) +
-  theme_bw() + coord_cartesian(y=c(0.0, 0.5)) + labs(y="Heritability") + scale_fill_manual(values = new_methods_colors) + facet_wrap(.~Index, ncol=1) + theme(legend.position = 'bottom')
+  theme_bw() + coord_cartesian(y=c(0.0, 0.6)) + labs(y="Heritability") + scale_fill_manual(values = new_methods_colors) + facet_wrap(.~Index, ncol=1) + theme(legend.position = 'top') + geom_text(aes(label=round(H2,2), y=0.5), position = position_dodge(0.9))
 ```
 
 ```{r figure6, echo = FALSE}
@@ -1031,67 +1739,68 @@ write.table(concord_data, "~/Desktop/Heritability/tables_figures/SuppTable_Pseud
 neworg = rbind(concord_data, concord_data)
 neworg["Definition"] = c(rep('Variance Component', dim(concord_data)[1]), rep('Heritability', dim(concord_data)[1]))
 neworg["Numeric"] = c(concord_data$sigma_g2, concord_data$h2)
+neworg = neworg[which(neworg$Definition=="Heritability"),]
 #D
 cor.test(neworg$d[which(neworg$Definition!="Variance Component")], 
          neworg$h2[which(neworg$Definition!="Variance Component")])
-cor.test(neworg$d[which(neworg$Definition=="Variance Component")], 
-         neworg$sigma_g2[which(neworg$Definition=="Variance Component")])
-label1 <- "Heritability Correlation = 1.00\nVariance Component Correlation = 0.99"
+#cor.test(neworg$d[which(neworg$Definition=="Variance Component")], 
+#         neworg$sigma_g2[which(neworg$Definition=="Variance Component")])
+label1 <- "Heritability Correlation = 1.00"
 
 lm(neworg$d~neworg$h2)
-lm(neworg$d~neworg$sigma_g2)
+#lm(neworg$d~neworg$sigma_g2)
 d_plot = ggplot(neworg, aes(x=Numeric, y=d, ymin = d - d_se, 
                                   ymax = d + d_se, color = Definition, shape = factor(K))) + 
-  geom_point() + geom_errorbar() + geom_line() + theme_minimal() + ylab("D-statistic") + xlab(TeX("$\\sigma_g^2$ or $h^2$")) + 
-  labs(shape = 'Observed Events/Cases') + geom_abline(intercept = 0.3455, slope =3.3308) + geom_abline(intercept = 0.4577, slope = 1.2696) +
-  annotate("text", x = 0.60, y = 0.7, label = label1, size = 2.5) + scale_color_discrete(labels = unname(TeX(c("$h^2$", "$\\sigma_g^2$"))))
+  geom_point() + geom_errorbar() + geom_line() + theme_minimal() + ylab("D-statistic") + xlab(TeX("$h^2$")) + 
+  labs(shape = 'Observed Events/Cases') + geom_abline(intercept = 0.3455, slope =3.3308) + #geom_abline(intercept = 0.4577, slope = 1.2696) +
+  annotate("text", x = 0.25, y = 0.7, label = label1, size = 2.5) + scale_color_discrete(labels = unname(TeX(c("$h^2$")))) + guides(color='none')
 
 
 #Concordance
 cor.test(neworg$concord[which(neworg$Definition!="Variance Component")], 
          neworg$h2[which(neworg$Definition!="Variance Component")])
-cor.test(neworg$concord[which(neworg$Definition=="Variance Component")], 
-         neworg$sigma_g2[which(neworg$Definition=="Variance Component")])
-label1 <- "Heritability Correlation = 0.99\nVariance Component Correlation = 0.98"
+#cor.test(neworg$concord[which(neworg$Definition=="Variance Component")], 
+#         neworg$sigma_g2[which(neworg$Definition=="Variance Component")])
+label1 <- "Heritability Correlation = 0.99"
 
 lm(neworg$concord~neworg$h2)
-lm(neworg$concord~neworg$sigma_g2)
+#lm(neworg$concord~neworg$sigma_g2)
 concord_plot = ggplot(neworg, aes(x=Numeric, y=concord, ymin = concord - concord_se, 
                                   ymax = concord + concord_se, color = Definition, shape = factor(K))) + 
-  geom_point() + geom_errorbar() + geom_line() + theme_minimal() + ylab("Concordance") + xlab(TeX("$\\sigma_g^2$ or $h^2$")) + 
-  labs(shape = 'Observed Events/Cases') + geom_abline(intercept = 0.5841, slope = 0.1901) + geom_abline(intercept = 0.5669, slope = 0.5007) +
-  annotate("text", x = 0.60, y = 0.615, label = label1, size = 2.5) + scale_color_discrete(labels = unname(TeX(c("$h^2$", "$\\sigma_g^2$"))))
+  geom_point() + geom_errorbar() + geom_line() + theme_minimal() + ylab("Concordance") + xlab(TeX("$$h^2$")) + 
+  labs(shape = 'Observed Events/Cases') + geom_abline(intercept = 0.5669, slope = 0.5007) + #geom_abline(intercept = 0.5841, slope = 0.1901) +
+  annotate("text", x = 0.25, y = 0.615, label = label1, size = 2.5) + scale_color_discrete(labels = unname(TeX(c("$h^2$")))) + guides(color='none')
 
 #R2_KO
 cor.test(neworg$r2_ko[which(neworg$Definition!="Variance Component")], 
          neworg$h2[which(neworg$Definition!="Variance Component")])
 
-cor.test(neworg$r2_ko[which(neworg$Definition=="Variance Component")], 
-         neworg$sigma_g2[which(neworg$Definition=="Variance Component")])
-label1 <- "Heritability Correlation = 1.00\nVariance Component Correlation = 0.99"
+#cor.test(neworg$r2_ko[which(neworg$Definition=="Variance Component")], 
+#         neworg$sigma_g2[which(neworg$Definition=="Variance Component")])
+label1 <- "Heritability Correlation = 1.00"
 
 lm(neworg$r2_ko~neworg$h2)
-lm(neworg$r2_ko~neworg$sigma_g2)
+#lm(neworg$r2_ko~neworg$sigma_g2)
 r2ko_plot = ggplot(neworg, aes(x=Numeric, y=r2_ko, ymin = r2_ko - r2_ko_se, 
                                   ymax = r2_ko + r2_ko_se, color = Definition, shape = factor(K))) + 
-  geom_point() + geom_errorbar() + geom_line() + theme_minimal() + ylab(TeX("Pseudo-$R^2_{KO}$")) + xlab(TeX("$\\sigma_g^2$ or $h^2$")) + 
-  labs(shape = 'Observed Events/Cases') + geom_abline(intercept = 0.002584, slope = 0.987901) + geom_abline(intercept = 0.03522, slope = 0.37797) +
-  annotate("text", x = 0.65, y = 0.075, label = label1, size = 2.5) + scale_color_discrete(labels = unname(TeX(c("$h^2$", "$\\sigma_g^2$"))))
+  geom_point() + geom_errorbar() + geom_line() + theme_minimal() + ylab(TeX("Pseudo-$R^2_{KO}$")) + xlab(TeX("$h^2$")) + 
+  labs(shape = 'Observed Events/Cases') + geom_abline(intercept = 0.002584, slope = 0.987901) + #geom_abline(intercept = 0.03522, slope = 0.37797) +
+  annotate("text", x = 0.25, y = 0.075, label = label1, size = 2.5) + scale_color_discrete(labels = unname(TeX(c("$h^2$")))) + guides(color='none')
 
 #R_N
 cor.test(neworg$r2_n[which(neworg$Definition!="Variance Component")], 
          neworg$h2[which(neworg$Definition!="Variance Component")])
-cor.test(neworg$r2_n[which(neworg$Definition=="Variance Component")], 
-         neworg$sigma_g2[which(neworg$Definition=="Variance Component")])
-label1 <- "Heritability Correlation = 0.64\nVariance Component Correlation = 0.64"
+#cor.test(neworg$r2_n[which(neworg$Definition=="Variance Component")], 
+#         neworg$sigma_g2[which(neworg$Definition=="Variance Component")])
+label1 <- "Heritability Correlation = 0.64"
 
 lm(neworg$r2_n~neworg$h2)
-lm(neworg$r2_n~neworg$sigma_g2)
+#lm(neworg$r2_n~neworg$sigma_g2)
 r2n_plot = ggplot(neworg, aes(x=Numeric, y=r2_n, ymin = r2_n - r2_n_se, 
                                ymax = r2_n + r2_n_se, color = Definition, shape = factor(K))) + 
-  geom_point() + geom_errorbar() + geom_line() + theme_minimal() + ylab(TeX("Pseudo-$R^2_{N}$")) + xlab(TeX("$\\sigma_g^2$ or $h^2$")) + 
-  labs(shape = 'Observed Events/Cases') + geom_abline(intercept = -0.005229, slope = 0.449155) + geom_abline(intercept = 0.009321, slope = 0.172489) +
-  annotate("text", x = 0.65, y = 0.02, label = label1, size = 2.5) + scale_color_discrete(labels = unname(TeX(c("$h^2$", "$\\sigma_g^2$"))))
+  geom_point() + geom_errorbar() + geom_line() + theme_minimal() + ylab(TeX("Pseudo-$R^2_{N}$")) + xlab(TeX("$h^2$")) + 
+  labs(shape = 'Observed Events/Cases') + geom_abline(intercept = -0.005229, slope = 0.449155) + #geom_abline(intercept = 0.009321, slope = 0.172489) +
+  annotate("text", x = 0.25, y = 0.02, label = label1, size = 2.5) + scale_color_discrete(labels = unname(TeX(c("$h^2$")))) + guides(color='none')
 
 supp_pseudo = (r2ko_plot + r2n_plot)/(concord_plot + d_plot) + plot_annotation(tag_levels = 'A') + plot_layout(guides = 'collect') & theme(legend.position = 'bottom')
 
@@ -1135,7 +1844,7 @@ ggsave("~/Desktop/Heritability/tables_figures/Fig4/Fig4.png", plot = fig4, width
 ## Figure 5
 ```{r plot4, echo=F, fig.width=14, fig.height=8}
 fig5
-ggsave("~/Desktop/Heritability/tables_figures/Fig5/Fig5.png", plot = fig5, width = 4200, height = 2100, units = "px", dpi = 300)
+ggsave("~/Desktop/Heritability/tables_figures/Fig5/Fig5.png", plot = fig5, width = 3200, height = 3200, units = "px", dpi = 300)
 ```
 
 ## Figure 6
@@ -1158,14 +1867,16 @@ ggsave("~/Desktop/Heritability/tables_figures/Fig7/Fig7b.png", plot = fig7b, wid
 
 ## Figure 7
 ```{r plot8_setup, include=F, fig.width=14, fig.height=8}
-fig7a = fig7a$plot + coord_cartesian(xlim=c(10,60), ylim=c(0.5,1))
-fig7b = fig7b$plot + coord_cartesian(xlim=c(10,60), ylim=c(0.5,1))
-fig7 = fig7a + fig7b
+fig7a = fig7a$plot + coord_cartesian(xlim=c(10,60), ylim=c(0.5,1)) + scale_x_continuous(breaks = seq(10,60,10))
+fig7b = fig7b$plot + coord_cartesian(xlim=c(10,60), ylim=c(0.5,1)) + scale_x_continuous(breaks = seq(10,60,10))
+fig7a = fig7a + theme(plot.title = element_text(size = 12))
+fig7b = fig7b + theme(plot.title = element_text(size = 12))
+fig7 = fig7a + fig7b 
 ```
 
 ```{r plot8, echo=F, fig.width=14, fig.height=8}
 fig7
-ggsave("~/Desktop/Heritability/tables_figures/Fig7/Fig7.png", plot = fig7, width = 2800, height = 2400, units = "px", dpi = 300)
+ggsave("~/Desktop/Heritability/tables_figures/Fig7/Fig7.png", plot = fig7, width = 4000, height = 2000, units = "px", dpi = 300)
 ```
 ## Extended Figure 1
 ```{r plot9, echo=F, fig.width=8, fig.height=12}
@@ -1195,4 +1906,42 @@ ggsave("~/Desktop/Heritability/tables_figures/SuppFig4/SuppFig4.png", plot = ext
 ```{r plot13, echo =F, fig.width=12, fig.height=8}
 extend4
 ggsave("~/Desktop/Heritability/tables_figures/SuppFig5/SuppFig5.png", plot = extend4, width = 4200, height = 2100, units = "px", dpi = 300)
+```
+
+```{r qqplots, echo=FALSE, warning=FALSE, message=FALSE, fig.width=14, fig.height=7}
+traits=c("Atrial Fibrillation", "Coronary Artery Disease", "Heart Failure", "Hyperlipidemia", "Hypertension", "Myocardial Infarction", "Type 2 Diabetes",
+         "Hyperlipidemia -> Atrial Fibrillation", "Hyperlipidemia -> Coronary Artery Disease", "Hyperlipidemia -> Heart Failure",
+         "Hyperlipidemia -> Hypertension", "Hyperlipidemia -> Myocardial Infarction",
+         "Hyperlipidemia -> Type 2 Diabetes", "Hypertension -> Atrial Fibrillation", "Hypertension -> Coronary Artery Disease",
+         "Hypertension -> Heart Failure", "Hypertension -> Hyperlipidemia", "Hypertension -> Myocardial Infarction",
+         "Hypertension -> Type 2 Diabetes", "Type 2 Diabetes -> Atrial Fibrillation", "Type 2 Diabetes -> Coronary Artery Disease",
+         "Type 2 Diabetes -> Heart Failure", "Type 2 Diabetes -> Hyperlipidemia", "Type 2 Diabetes -> Hypertension",
+         "Type 2 Diabetes -> Myocardial Infarction")
+
+files=c("Af_noAge_gwas.txt", "Cad_noAge_gwas.txt", "Hf_noAge_gwas.txt", "HyperLip_noAge_gwas.txt",
+               "Ht_noAge_gwas.txt", "Mi_noAge_gwas.txt", "DmT2_noAge_gwas.txt",
+               "HyperLip_Af_noAge_interval_gwas.txt", "HyperLip_Cad_noAge_interval_gwas.txt",
+               "HyperLip_Hf_noAge_interval_gwas.txt", "HyperLip_Ht_noAge_interval_gwas.txt",
+               "HyperLip_Mi_noAge_interval_gwas.txt", "HyperLip_DmT2_noAge_interval_gwas.txt",
+               "Ht_Af_noAge_interval_gwas.txt", "Ht_Cad_noAge_interval_gwas.txt",
+               "Ht_Hf_noAge_interval_gwas.txt", "Ht_HyperLip_noAge_interval_gwas.txt",
+               "Ht_Mi_noAge_interval_gwas.txt", "Ht_DmT2_noAge_interval_gwas.txt",
+               "DmT2_Af_noAge_interval_gwas.txt", "DmT2_Cad_noAge_interval_gwas.txt",
+               "DmT2_Hf_noAge_interval_gwas.txt", "DmT2_HyperLip_noAge_interval_gwas.txt",
+               "DmT2_Ht_noAge_interval_gwas.txt", "DmT2_Mi_noAge_interval_gwas.txt")
+
+dir='~/Desktop/Heritability/ukbb/gwas/noAge/all/'
+for(num in 1:length(traits)){
+  data=read.delim(paste0(dir, files[num]))
+  max_logp <- ceiling(-log10(data$TTE_P))
+  plot1 = fastqq_gg(data$CC_P)[[1]] + ggtitle("Case-Control GWAS")
+  plot2 = fastqq_gg(data$TTE_P)[[1]] + ggtitle("Time-to-Event GWAS")
+  plot3 = fastqq_gg(p1 = sort(data$TTE_P), p2 = sort(data$CC_P))[[1]] +
+    ggtitle("Case-Control GWAS vs Time-to-Event GWAS") + 
+    scale_y_continuous(name = TeX("$-log_{10}$(Time-to-Event p-value)")) +
+    scale_x_continuous(name = TeX("$-log_{10}$(Case-Control p-value)"))
+  plot = (plot1 + plot2 + plot3) + plot_annotation(title=traits[num], tag_levels = 'A',theme = all_theme)
+  print(plot)
+  ggsave(paste0("~/Desktop/Heritability/tables_figures/SuppQQPlots/trait", num, ".png"), plot = plot, width = 4200, height = 2100, units = "px", dpi = 300)
+}
 ```
