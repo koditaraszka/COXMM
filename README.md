@@ -130,3 +130,8 @@ To create the final output run:
 which gives the following output:
   `source component h2 h2_var sigma2g sigma2g_var
   example/tte_idealsim.txt tau_sum 0.212 0.00023 0.441 0.00159` 
+
+
+It is also possible to run COXMM with multiple variance components (which has not been vetted). There is an example simulation which can be created using `Rscript scripts/example_multi.R`. To run this COXMM on this example, use the following command:
+
+`python coxmm.py -e example/tte_multi1_base40_outcome1.txt -g example/ldak1 example/ldak2 -o example/tte_multi_h2.txt`
