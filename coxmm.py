@@ -42,11 +42,12 @@ class COXMM(COXMM_IO):
 
 	def __init__(self):
 		super().__init__()
-		# From COXMM_IO, we have N, M, grm, times, events, fixed, output
+		# From COXMM_IO, we have N, M, c, grm, times, events, fixed, output
 		self.theta = np.zeros(self.N+self.M)
 		self.update = np.zeros(self.N+self.M)
 		self.exp_eta = None  # set by l_1() before first read
 		self.risk_set = np.tril(np.ones((self.N, self.N), dtype=np.uint8)).T
+		self.grm_inv = None  # set by marg_loglike() before first read
 		self.grm_u = None  # set by l_1() before first read
 		self.loc = np.where(self.events==1)
 		self.WB = None  # set by l_1_deriv() before first read
@@ -109,14 +110,14 @@ class COXMM(COXMM_IO):
 		# just chosen (half way point when we considered sigma2g == h2
 		# we do find a local optimum, so it's possible this starting point impacts the estimate
 		# may be worthwhile to exhaustively test, but it didn't seem to affect simulations
-		tau = 0.5
+		tau = [min(0.5, 2.0 / self.c)] * self.c
 		# 1e-4 is the lower bound because we want the order of magnitude to be reasonable between upper and lower
 		# 1e-4 should be treated as 0
 		# 5 would result in a heritability estimate of 0.75 which is pretty high
 		# to get to 1 we essentially need pi^2/6 to approach 0 (relatively)
-		soln = pybobyqa.solve(self.marg_loglike, x0=[tau], bounds=([1e-4], [5]))
-		tau = soln.x[0]
-		her = tau / (tau + (np.pi * np.pi) / 6)
+		soln = pybobyqa.solve(self.marg_loglike, x0=tau, bounds=([1e-4] * self.c, [5] * self.c), rhobeg=tau[0] - 1e-4)
+		tau = soln.x
+		her = tau / (np.sum(tau) + (np.pi * np.pi) / 6)
 		n_cases = self.loc[0].shape[0]
 
 		# report the tau/sigma2g varience component estimate
@@ -124,8 +125,11 @@ class COXMM(COXMM_IO):
 		mode = 'w' if write_header else 'a'
 		with open(self.output, mode) as output:
 			if write_header:
-				output.write("sigma2g h2 N Cases type\n")
-			output.write(f"{tau} {her} {self.N} {n_cases} {type_label}\n")
+				output.write("sigma2g h2 N Cases component type\n")
+			output.write(f"{np.sum(tau)} {np.sum(her)} {self.N} {n_cases} tau_sum {type_label}\n")
+			if self.c > 1:
+				for i in range(self.c):
+					output.write(f"{tau[i]} {her[i]} {self.N} {n_cases} tau_{i+1} {type_label}\n")
 
 		logger.info(f"Heritability estimate: {tau}")
 		logger.info(f"The sample size is {self.N}")
@@ -184,11 +188,11 @@ class COXMM(COXMM_IO):
 	def reset(self):
 		"""Re-initialise all working arrays after the GRM or event data changes.
 		"""
-		self.N = self.grm.shape[0]
 		self.theta = np.zeros(self.N+self.M)
 		self.update = np.zeros(self.N+self.M)
 		self.exp_eta = None  # set by l_1() before first read
 		self.risk_set = np.tril(np.ones((self.N, self.N), dtype=np.uint8)).T
+		self.grm_inv = None  # set by marg_loglike() before first read
 		self.grm_u = None  # set by l_1() before first read
 		self.loc = np.where(self.events==1)
 		self.WB = None  # set by l_1_deriv() before first read
@@ -216,8 +220,9 @@ class COXMM(COXMM_IO):
 			for who in late_start:
 				start_time = self.times[who,0]
 				for before in range(0,who):
-					if start_time <= self.times[before,0]:
-						self.risk_set[0:before,who] = 0
+					if start_time > self.times[before,1]:
+						self.risk_set[before,who] = 0
+					else:
 						break
 
 		# fixing duplicated stopping times
@@ -231,15 +236,12 @@ class COXMM(COXMM_IO):
 				for who in same_time:
 					self.risk_set[min_pos:(max_pos+1),who] = 1
 
-	def l_1(self, tau):
+	def l_1(self):
 		"""Penalised partial log-likelihood at the current theta/sigma2g
 
 		Computes the Cox partial log-likelihood minus the quadratic random-effect
-		penalty u^T * GRM^{-1} * u / (2*tau). Also updates self.exp_eta and
+		penalty u^T * grm_inv * u / 2. Also updates self.exp_eta and
 		self.grm_u as side effects used by l_1_deriv.
-
-		Args:
-			tau: Genetic variance component (sigma²_g). Must be > 0.
 
 		Returns:
 			Scalar penalised partial log-likelihood.
@@ -253,17 +255,15 @@ class COXMM(COXMM_IO):
 		risk_eta = np.multiply(self.risk_set[self.loc,:][0], self.exp_eta)
 		result = np.sum(np.log(self.exp_eta[self.loc])) - np.sum(np.log(np.sum(risk_eta,axis=1)))
 
-		self.grm_u = np.matmul(self.grm, self.theta[self.M:(self.M+self.N)])
-		result -= 1/(2*tau)*(np.matmul(self.theta[self.M:(self.M+self.N)].T, self.grm_u))
+		u = self.theta[self.M:(self.M+self.N)]
+		self.grm_u = np.matmul(self.grm_inv, u)
+		result -= 0.5 * np.matmul(u.T, self.grm_u)
 		return result
 
-	def l_1_deriv(self, tau):
+	def l_1_deriv(self):
 		"""Score vector and information matrix for theta at fixed tau.
 
 				Populates self.s (score) and self.V (information matrix) in place. 
-
-				Args:
-						tau: Genetic variance component (sigma2g). Must be > 0.
 
 				Side effects:
 						Updates self.A, self.WB, self.s, self.V.
@@ -282,7 +282,7 @@ class COXMM(COXMM_IO):
 		self.WB = self.exp_eta * (self.rs_cases_T.astype(np.float64) * A_vals).sum(axis=1)
 
 		# setting score function s with parts [one, two]
-		# s[two] -- d - WMA1 - (Sigma^-1 gamma) / tau (save sigma^-1 gamma / tau for now)
+		# s[two] -- d - WMA1 - grm_inv * gamma (save grm_inv * gamma for now)
 		self.s[self.M:(self.M+self.N)] = self.events - self.WB
 
 		# H = WB - QQ^T = WB - WMA^2M^TW.
@@ -292,9 +292,9 @@ class COXMM(COXMM_IO):
 		step2_cols = self.rs_cases_T.astype(np.float64) * (self.exp_eta[self.cases] * np.square(A_vals))
 		H = step2_cols @ MTW_cases  # (N, n_cases) @ (n_cases, N) = (N, N)
 
-		#V[four] -- H + sigma^-1/tau: always exists since we're looking at random effect
+		#V[four] -- H + grm_inv: always exists since we're looking at random effect
 		# Use fill_diagonal to add WB to diagonal; avoids allocating N×N np.diag(WB).
-		self.V[self.M:(self.M+self.N), self.M:(self.M+self.N)] = self.grm/tau - H
+		self.V[self.M:(self.M+self.N), self.M:(self.M+self.N)] = self.grm_inv - H
 		np.fill_diagonal(
 			self.V[self.M:(self.M+self.N), self.M:(self.M+self.N)],
 			self.V[self.M:(self.M+self.N), self.M:(self.M+self.N)].diagonal() + self.WB
@@ -316,7 +316,7 @@ class COXMM(COXMM_IO):
 			#s[one] -- X^T(d - WMA1)
 			self.s[0:self.M] = np.matmul(self.fixed.T, self.s[self.M:(self.M+self.N)])
 		#update s[two] after setting s[one]
-		self.s[self.M:(self.M+self.N)] = self.s[self.M:(self.M+self.N)] - self.grm_u/tau
+		self.s[self.M:(self.M+self.N)] = self.s[self.M:(self.M+self.N)] - self.grm_u
 
 	def marg_loglike(self, tau):
 		"""Laplace-approximated marginal log-likelihood for sigma2g/tau.
@@ -328,7 +328,7 @@ class COXMM(COXMM_IO):
 				to obtain the MLE for tau.
 
 		Args:
-			tau: Genetic variance component (sigma2g). Must be > 0.
+			tau: Genetic variance component(s) (sigma2g). Must be > 0.
 
 		Returns:
 			Scalar Laplace marginal log-likelihood (to be minimised by BOBYQA).
@@ -337,24 +337,35 @@ class COXMM(COXMM_IO):
 			Converges self.theta
 			Updates self.V, self.WB, self.A, self.exp_eta
 		"""
+		# When self.c == 1, self.grm is already inverted once ahead of time in coxmm_input.py.
+		# When self.c > 1, we form the weighted sum of raw GRMs and invert it here for the current tau.
+		if self.c == 1:
+			self.grm_inv = self.grm / tau[0]
+			log_det_grm = self.N * np.log(tau[0])
+		else:
+			Lambda, U = np.linalg.eigh(sum(tau[i] * self.grm[i] for i in range(self.c)))
+			Lambda[Lambda < 1e-10] = 1e-6
+			self.grm_inv = (U * (1 / Lambda)) @ U.T
+			log_det_grm = np.sum(np.log(Lambda))
+
 		# these values could be adjusted, were chosen as reasonable choices
 		eps = 1e-6
 		run = 0
 		max_runs = 200
 		loglike = 0
-		update_loglike = self.l_1(tau)
+		update_loglike = self.l_1()
 		diff_loglike = 0 #update_loglike - loglike
 		eps_s = 0 #eps*(-1)*loglike
 		while (run == 0 or diff_loglike > eps) and run < max_runs:
 			damp = 1
 			loglike = update_loglike
-			self.l_1_deriv(tau)
+			self.l_1_deriv()
 			self.update = np.linalg.solve(self.V, self.s)
 			self.theta[self.M:(self.M+self.N)] = self.theta[self.M:(self.M+self.N)] + self.update[self.M:(self.M+self.N)]
 			if self.M > 0:
 				self.theta[0:self.M] = self.theta[0:self.M] + self.update[0:self.M]
 
-			update_loglike = self.l_1(tau)
+			update_loglike = self.l_1()
 			eps_s = eps*(-1)*loglike
 			diff_loglike = update_loglike - loglike
 			while diff_loglike < -eps_s:
@@ -367,7 +378,7 @@ class COXMM(COXMM_IO):
 				self.theta[self.M:(self.M+self.N)] = self.theta[self.M:(self.M+self.N)] - self.update[self.M:(self.M+self.N)]
 				if self.M > 0:
 					self.theta[0:self.M] = self.theta[0:self.M] - self.update[0:self.M]
-				update_loglike = self.l_1(tau)
+				update_loglike = self.l_1()
 				diff_loglike = update_loglike - loglike
 
 			run += 1
@@ -383,10 +394,10 @@ class COXMM(COXMM_IO):
 		starter_matrix = np.minimum.outer(ws, ws)
 		J = np.outer(self.exp_eta, self.exp_eta) * A[starter_matrix]
 
-		J = self.grm/tau - J
+		J = self.grm_inv - J
 		np.fill_diagonal(J, J.diagonal() + self.WB)
 		_, log_det = np.linalg.slogdet(J)
-		return self.N*np.log(tau) + log_det - 2*update_loglike
+		return log_det_grm + log_det - 2*update_loglike
 
 if __name__ == "__main__":
 	logging.basicConfig(

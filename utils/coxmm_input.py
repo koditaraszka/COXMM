@@ -16,17 +16,18 @@ import os.path as path
 logger = logging.getLogger(__name__)
 
 # TODO in future iterations: handle missing data in fixed effects/outcome, assumes data preprocessed
-# TODO in future iterations: allow multiple GRMs
 class COXMM_IO():
 	"""Handles all data input and preprocessing for COXMM
 		parses CLI arguments
 		loads phenotypes and (optional) covariates
-		read/inverts GRM
+		reads GRM(s) and inverts when c == 1
 		
 	Attributes:
 		N (int): Number of analysis samples (after intersection and filtering).
 		M (int): Number of fixed-effect covariates (0 if none supplied).
-		grm (np.ndarray): Inverted GRM, shape (N, N), float64.
+		c (int): Number of variance components / GRMs.
+		grm (np.ndarray or list[np.ndarray]): Inverted GRM of shape (N, N) when c == 1,
+			or list of c raw GRMs of shape (N, N) when c > 1.
 		times (np.ndarray): N×2 array of [start, stop] times.
 		events (np.ndarray): Length-N binary event indicator (1=case, 0=censored).
 		fixed (np.ndarray or None): N×M covariate matrix, or None if not supplied.
@@ -39,6 +40,7 @@ class COXMM_IO():
 		self.grmN = 0
 		self.N = 0
 		self.M = 0
+		self.c = 0
 		self.names = None
 		self.grm = None
 		self.fixed = None
@@ -51,16 +53,17 @@ class COXMM_IO():
 		self.events = self.events.event.to_numpy()
 
 	def setup(self):
-		"""Parse arguments, load the GRM, and prepare phenotypes and covariates.
+		"""Parse arguments, load the GRM(s), and prepare phenotypes and covariates.
 
 				Detects GRM format automatically: binary when <prefix>.grm.bin exists, 
 						otherwise tab-delimited text needs separate names file. 
-				Subsets the GRM, inverts via eigendecomposition, and one-hot encodes or scales covariates as needed.
+				Subsets the GRM(s), inverts via eigendecomposition when c == 1, and one-hot encodes or scales covariates as needed.
 				
 				Results are stored in self.grm, self.fixed, and self.M.
 				"""	
 		args = self.def_parser()
 		self.output = args.output
+		self.c = len(args.grm)
 		self.joint_jackknife = args.joint_jackknife
 		# type label written to the output file; set here so fit() can pass it through
 		if args.jackknife is not None:
@@ -71,24 +74,29 @@ class COXMM_IO():
 		# Detect GRM format: binary (GCTA .grm.bin/.grm.id) when
 		# <grm>.grm.bin exists, otherwise text (tab-delimited square matrix
 		# with a separate names file supplied via -n/--grm_names).
-		binary_mode = path.isfile(args.grm + ".grm.bin")
+		binary_mode = path.isfile(args.grm[0] + ".grm.bin")
 
 		if binary_mode:
 			# Read sample IDs from the GCTA .grm.id file (two columns: FID IID,
 			# no header). We use the IID/sample_id column (column 1) as the sample identifier.
-			grm_id_file = args.grm + ".grm.id"
-			grm_names = pd.read_csv(grm_id_file, sep='\t', header=None, names = ['FID', 'sample_id'])
-			# Drop the FID column — only IID/sample_id is used for matching
-			grm_names = grm_names[['sample_id']]
+			grm_names_list = [
+				pd.read_csv(g + ".grm.id", sep='\t', header=None, names=['FID', 'sample_id'])[['sample_id']]
+				for g in args.grm
+			]
+			grm_names = grm_names_list[0]
 			self.grmN = grm_names.shape[0]
 		else:
 			# Text mode: -n/--grm_names required
 			if args.grm_names is None:
 				raise ValueError("Text GRM format requires -n/--grm_names (path to sample names file)")
-			grm_names = pd.read_csv(args.grm_names, header=0)
+			grm_names_list = [pd.read_csv(n, header=0) for n in args.grm_names]
+			if args.sample_id is not None:
+				grm_names_list = [df.rename(columns={args.sample_id: 'sample_id'}) for df in grm_names_list]
+			if self.c > 1 and len(grm_names_list) == 1:
+				logger.warning("Only one GRM names file provided for multiple GRMs; not checking that sample ordering is consistent across GRMs")
+			grm_names = grm_names_list[0]
 			self.grmN = grm_names.shape[0]
 
-		
 		# Cache args to re-load data for each joint jackknife split; raw GRM is NOT cached
 		# re-read from disk inside _reload_for_jackknife() for each split.
 		if args.joint_jackknife is not None:
@@ -100,13 +108,14 @@ class COXMM_IO():
 			self._joint_seed		   = args.seed
 			self._joint_fixed_path	 = args.fixed
 			self._joint_binary_mode	= binary_mode
-			self._joint_grm_names	  = grm_names.copy()
+			self._joint_grm_names	  = [df.copy() for df in grm_names_list]
 
-		self.events = self.process_events(args.sample_id, args.events, grm_names, args.jackknife, args.seed, binary_mode)
+		self.events = self.process_events(args.sample_id, args.events, grm_names.copy(), args.jackknife, args.seed, binary_mode)
 
-		idx = self.events.rownum.to_numpy()
-		grm = self._read_grm(args.grm, binary_mode, idx, self.grmN, self.N)
-		self.grm = self._invert_grm(grm)
+		idx = self._get_grm_indices(grm_names_list, self.events)
+		self.grm = [self._read_grm(args.grm[i], binary_mode, idx[i], self.grmN, self.N) for i in range(self.c)]
+		if self.c == 1:
+			self.grm = self._invert_grm(self.grm[0])
 
 		if args.fixed is not None:
 			logger.warning("Minimal checks on issues with fixed effects input. Be careful")
@@ -114,6 +123,27 @@ class COXMM_IO():
 				args.fixed, args.sample_id, binary_mode, self.events.index
 			)
 			self.fixed = fixed_df.to_numpy()
+
+	def _get_grm_indices(self, grm_names_list, events_df):
+		"""Return row/col index arrays for each GRM, reordering to match the first GRM if needed."""
+		idx_0 = events_df.rownum.to_numpy()
+		if len(grm_names_list) == 1:
+			return [idx_0] * self.c
+
+		ref_ids = grm_names_list[0]['sample_id']
+		ref_set = set(ref_ids)
+		indices = [idx_0]
+		for i in range(1, self.c):
+			cur_ids = grm_names_list[i]['sample_id']
+			if len(cur_ids) != len(ref_ids) or set(cur_ids) != ref_set:
+				raise ValueError(f"GRM {i+1} does not contain the same sample IDs as the first GRM")
+			if cur_ids.equals(ref_ids):
+				indices.append(idx_0)
+			else:
+				logger.warning(f"GRM {i+1} sample order does not match the first GRM; reordering to match the first GRM")
+				id_to_row = pd.Series(np.arange(len(cur_ids)), index=cur_ids)
+				indices.append(id_to_row.loc[events_df.index].to_numpy())
+		return indices
 
 	def _read_grm(self, grm_path, binary_mode, idx, grmN, N):
 		"""Read and subset the GRM from disk.
@@ -203,6 +233,8 @@ class COXMM_IO():
 				grm = pd.read_csv(grm_path, sep='\t', header=None).to_numpy(dtype=np.float64)
 				if grm.shape[0] != grm.shape[1]:
 					raise ValueError("GRM: " + grm_path + " is not a square matrix")
+				if grm.shape[0] != grmN:
+					raise ValueError("GRM: " + grm_path + " column count does not match names file")
 				grm = grm[np.ix_(idx, idx)]
 		return grm
 
@@ -243,9 +275,9 @@ class COXMM_IO():
 		fixed_df = pd.read_csv(fixed_path, sep='\t', header=0)
 		if sample_id is not None:
 			fixed_df = fixed_df.rename(columns={sample_id: 'sample_id'})
-		elif 'IID' in fixed_df:
+		elif binary_mode and 'IID' in fixed_df:
 			if 'sample_id' in fixed_df:
-				logger.error("Both IID and sample_id are in the covariate file when the binary GRM is used")
+				raise ValueError("Both IID and sample_id are in the covariate file when the binary GRM is used")
 			else:	
 				fixed_df = fixed_df.rename(columns={'IID': 'sample_id'})
 		else:
@@ -256,11 +288,11 @@ class COXMM_IO():
 		for col in columns:
 			if fixed_df[col].dtype == object:
 				logger.info(f"Column '{col}' is a categorical variable and will be one-hot encoded")
-				one_hot = pd.get_dummies(fixed_df[col])
+				one_hot = pd.get_dummies(fixed_df[col], dtype=float)
 				one_hot.pop(one_hot.columns[0])
 				fixed_df = fixed_df.drop(col, axis=1)
 				fixed_df = fixed_df.join(one_hot)
-			elif fixed_df[col].dtype == np.float64:
+			elif np.issubdtype(fixed_df[col].dtype, np.number):
 				var = fixed_df[col].var()
 				# 100 and 0.01 chosen as reasonable thresholds may want to adjust
 				if var > 100 or var < 0.01:
@@ -270,6 +302,8 @@ class COXMM_IO():
 					logger.info(f"  '{col}' after scaling: mean={fixed_df[col].mean():.4g}  var={fixed_df[col].var():.4g}")
 
 		fixed_df = fixed_df.reindex(index=index)
+		if fixed_df.isna().any().any():
+			raise ValueError("Missing values found in fixed effects after aligning with events samples")
 		return fixed_df, fixed_df.shape[1]
 
 	def def_parser(self):
@@ -286,11 +320,11 @@ class COXMM_IO():
 		required = parser.add_argument_group('Required Arguments')
 		required.add_argument('-e', '--events', required = True,
 			help = 'path to outcome file with four columns: sample_id (IID okay for binary GRM), start, stop, event. The ID column name is changeable with -s/--sample_id')
-		required.add_argument('-g', '--grm', dest = 'grm', required = True,
-			help = 'GRM input. For binary format (GCTA): prefix for <prefix>.grm.bin and <prefix>.grm.id files (auto-detected when <prefix>.grm.bin exists). For text format: path to tab-delimited square matrix file (no header, no row labels); also requires -n/--grm_names.')
+		required.add_argument('-g', '--grm', dest = 'grm', nargs = '+', required = True,
+			help = 'GRM input(s). For binary format (GCTA): prefix(es) for <prefix>.grm.bin and <prefix>.grm.id files (auto-detected when <prefix>.grm.bin exists). For text format: path(s) to tab-delimited square matrix file(s) (no header, no row labels); also requires -n/--grm_names.')
 		optional = parser.add_argument_group('Optional Arguments')
-		optional.add_argument('-n', '--grm_names', dest = 'grm_names',
-			help = 'text GRM only: path to file with one column of sample IDs matching GRM row order (header row names the ID column). Not used for binary GRM.')
+		optional.add_argument('-n', '--grm_names', dest = 'grm_names', nargs = '+',
+			help = 'text GRM only: path(s) to file(s) with one column of sample IDs matching GRM row order (header row names the ID column). Not used for binary GRM.')
 		optional.add_argument('-s', '--sample_id', dest = 'sample_id',
 			help = 'column name for the sample ID in the events/fixed effects files. For binary GRM also looks for IID; for text GRM defaults to sample_id.')
 		optional.add_argument('-f', '--fixed', dest = 'fixed',
@@ -316,22 +350,34 @@ class COXMM_IO():
 			raise ValueError("The outcomes/events file does not exist")
 
 		# GRM existence checks depend on detected format
-		binary_mode = path.isfile(args.grm + ".grm.bin")
+		binary_mode = path.isfile(args.grm[0] + ".grm.bin")
 		if binary_mode:
-			if not path.isfile(args.grm + ".grm.id"):
-				raise ValueError("Binary GRM detected but .grm.id file not found: " + args.grm + ".grm.id")
+			for g in args.grm:
+				if not path.isfile(g + ".grm.bin"):
+					raise ValueError("The binary GRM file does not exist: " + g + ".grm.bin")
+				if not path.isfile(g + ".grm.id"):
+					raise ValueError("Binary GRM detected but .grm.id file not found: " + g + ".grm.id")
 		else:
-			if not path.isfile(args.grm):
-				raise ValueError("The GRM file does not exist: " + args.grm)
+			for g in args.grm:
+				if not path.isfile(g):
+					raise ValueError("The GRM file does not exist: " + g)
 			if args.grm_names is None:
 				raise ValueError("Text GRM format requires -n/--grm_names")
-			if not path.isfile(args.grm_names):
-				raise ValueError("The GRM names file does not exist: " + args.grm_names)
+			if len(args.grm_names) not in (1, len(args.grm)):
+				raise ValueError("Number of --grm_names files must be 1 or match the number of --grm files")
+			for n in args.grm_names:
+				if not path.isfile(n):
+					raise ValueError("The GRM names file does not exist: " + n)
 
 		if args.joint_jackknife is not None and args.jackknife is not None:
 			raise ValueError("--joint_jackknife and --jackknife cannot be used together")
 		if args.joint_jackknife is not None and args.joint_jackknife < 2:
 			raise ValueError("--joint_jackknife requires at least 2 splits")
+		if args.jackknife is not None:
+			if len(args.jackknife) != 2:
+				raise ValueError("--jackknife requires two arguments: total splits and split index (base 1)")
+			if int(args.jackknife[1]) < 1 or int(args.jackknife[1]) > int(args.jackknife[0]):
+				raise ValueError("Jackknife split index must be between 1 and total splits")
 
 		return(args)
 
@@ -370,8 +416,8 @@ class COXMM_IO():
 		# Determine the default ID column name based on format
 		default_id = 'sample_id'
 		if binary_mode and 'IID' in events:
-			if 'sample_id' in fixed_df:
-				logger.error("Both IID and sample_id are in the events file when the binary GRM is used")	
+			if 'sample_id' in events:
+				raise ValueError("Both IID and sample_id are in the events file when the binary GRM is used")	
 			else:	
 				default_id = 'IID'
 
@@ -449,19 +495,21 @@ class COXMM_IO():
 		events_df = self.process_events(
 			self._joint_sample_id,
 			self._joint_events_path,
-			self._joint_grm_names.copy(),
+			self._joint_grm_names[0].copy(),
 			jackknife_arg,
 			self._joint_seed,
 			self._joint_binary_mode,
 		)
 		# self.N is updated as a side effect of process_events
 
-		# Re-read and re-subset the GRM from disk, then invert.
-		idx = events_df.rownum.to_numpy()
-		grm = self._read_grm(
-			self._joint_grm_path, self._joint_binary_mode, idx, self.grmN, self.N
-		)
-		self.grm = self._invert_grm(grm)
+		# Re-read and re-subset the GRM(s) from disk, then invert if c == 1.
+		idx = self._get_grm_indices(self._joint_grm_names, events_df)
+		self.grm = [
+			self._read_grm(self._joint_grm_path[i], self._joint_binary_mode, idx[i], self.grmN, self.N)
+			for i in range(self.c)
+		]
+		if self.c == 1:
+			self.grm = self._invert_grm(self.grm[0])
 
 		# Derive numpy arrays from the filtered events DataFrame (mirrors __init__)
 		self.times  = events_df[['start', 'stop']].to_numpy()

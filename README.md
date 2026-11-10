@@ -52,13 +52,13 @@ This argument is the path to a tab-separated file which contains (at least) four
   
   2. -g/--grm
 
-This argument is the path to the GRM. Assumes binary format (auto-detected by /path/prefix.grm.bin exists)
-		Otherwise, assumes full/path/filename.suffix which is a tab-delimited file without header/rownames
+This argument is the path(s) to one or more GRMs. Assumes binary format (auto-detected when /path/prefix.grm.bin exists).
+		Otherwise, assumes full/path/filename.suffix which is a tab-delimited file without header/rownames.
 		
 ### Optional Arguments
   1. -n/--grm_names
 
-This argument is the path to the file containing a single column with the header (sample_ids: see -s/--sample_id). This file continas the unique identifier for each individual in -g/--grm only used if grm is tab-delimited file
+This argument is the path(s) to the file(s) containing a single column with the header (sample_ids: see -s/--sample_id). This file contains the unique identifier for each individual in -g/--grm; only used if grm is a tab-delimited file. If multiple GRMs are supplied, either one shared names file or one names file per GRM can be provided.
   
   2. -s/--sample_id
 
@@ -128,5 +128,5 @@ To create the final output run:
 `Rscript scripts/cal_standerr.R example/tte_idealsim.txt`
 
 which gives the following output:
-  `source h2 h2_var sigma2g sigma2g_var
-  example/tte_idealsim.txt 0.212 0.00023 0.441 0.00159` 
+  `source component h2 h2_var sigma2g sigma2g_var
+  example/tte_idealsim.txt tau_sum 0.212 0.00023 0.441 0.00159` 

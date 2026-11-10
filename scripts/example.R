@@ -115,7 +115,7 @@ for(run in 1:reps){
   for(cenRate in c(20)){
     z=weibull_expcensor(shape, l_g, cenRate)
     write_output(z, shape, paste0('cen'), run)
-    cat(sigma2g, label, run, round(sum(z$Y)/length(z$Y),3), "\n")
+    cat(sigma2g, cenRate, run, round(sum(z$Y)/length(z$Y),3), "\n")
   }
   for(shape in c(1)){
     for(K in c(0.4)){
